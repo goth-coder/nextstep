@@ -1,0 +1,63 @@
+services:
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.14.3
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlruns:/mlruns
+      - ./data:/data:ro
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:///mlruns/mlflow.db
+      --default-artifact-root /mlruns/artifacts
+    networks:
+      - nextstep-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - PORT=8080
+      - GIT_PYTHON_REFRESH=quiet
+    volumes:
+      # Mount project data dir so data_loader.py and prediction_cache.py can find the CSV/tensors
+      - ./data:/data:ro
+      - ./backend/data:/app/data
+      # MLflow artifacts must be accessible in the api container (same path as mlflow container)
+      - ./mlruns:/mlruns
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    networks:
+      - nextstep-net
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8080
+    depends_on:
+      - api
+    networks:
+      - nextstep-net
+    restart: unless-stopped
+
+networks:
+  nextstep-net:
+    driver: bridge

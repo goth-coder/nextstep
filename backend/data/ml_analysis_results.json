@@ -1,0 +1,108 @@
+{
+  "E1": {
+    "val_auc": 1.0,
+    "val_f1": 1.0,
+    "val_acc": 1.0,
+    "final_loss": 0.0008,
+    "confusion_matrix": [
+      [
+        98,
+        0
+      ],
+      [
+        0,
+        212
+      ]
+    ],
+    "report": "              precision    recall  f1-score   support\n\n      No Lag       1.00      1.00      1.00        98\n         Lag       1.00      1.00      1.00       212\n\n    accuracy                           1.00       310\n   macro avg       1.00      1.00      1.00       310\nweighted avg       1.00      1.00      1.00       310\n",
+    "train_size": 1236,
+    "test_size": 310,
+    "train_pos_rate": 0.6545,
+    "test_pos_rate": 0.6839
+  },
+  "E2": {
+    "val_auc": 1.0,
+    "val_f1": 1.0,
+    "val_acc": 1.0,
+    "final_loss": 0.0029,
+    "confusion_matrix": [
+      [
+        259,
+        0
+      ],
+      [
+        0,
+        601
+      ]
+    ],
+    "report": "              precision    recall  f1-score   support\n\n      No Lag       1.00      1.00      1.00       259\n         Lag       1.00      1.00      1.00       601\n\n    accuracy                           1.00       860\n   macro avg       1.00      1.00      1.00       860\nweighted avg       1.00      1.00      1.00       860\n",
+    "train_size": 686,
+    "test_size": 860,
+    "train_pos_rate": 0.6122,
+    "test_pos_rate": 0.6988
+  },
+  "E3": {
+    "val_auc": 1.0,
+    "val_f1": 1.0,
+    "val_acc": 1.0,
+    "final_loss": 0.0029,
+    "confusion_matrix": [
+      [
+        259,
+        0
+      ],
+      [
+        0,
+        601
+      ]
+    ],
+    "report": "              precision    recall  f1-score   support\n\n      No Lag       1.00      1.00      1.00       259\n         Lag       1.00      1.00      1.00       601\n\n    accuracy                           1.00       860\n   macro avg       1.00      1.00      1.00       860\nweighted avg       1.00      1.00      1.00       860\n",
+    "train_size": 686,
+    "test_size": 860,
+    "train_pos_rate": 0.6122,
+    "test_pos_rate": 0.6988
+  },
+  "E4": {
+    "val_auc": 1.0,
+    "val_f1": 1.0,
+    "val_acc": 1.0,
+    "final_loss": 0.0034,
+    "confusion_matrix": [
+      [
+        259,
+        0
+      ],
+      [
+        0,
+        601
+      ]
+    ],
+    "report": "              precision    recall  f1-score   support\n\n      No Lag       1.00      1.00      1.00       259\n         Lag       1.00      1.00      1.00       601\n\n    accuracy                           1.00       860\n   macro avg       1.00      1.00      1.00       860\nweighted avg       1.00      1.00      1.00       860\n",
+    "train_size": 686,
+    "test_size": 860,
+    "train_pos_rate": 0.6122,
+    "test_pos_rate": 0.6988
+  },
+  "E5": {
+    "val_auc": 1.0,
+    "val_f1": 1.0,
+    "val_acc": 1.0,
+    "final_loss": 0.0021,
+    "confusion_matrix": [
+      [
+        259,
+        0
+      ],
+      [
+        0,
+        601
+      ]
+    ],
+    "report": "              precision    recall  f1-score   support\n\n      No Lag       1.00      1.00      1.00       259\n         Lag       1.00      1.00      1.00       601\n\n    accuracy                           1.00       860\n   macro avg       1.00      1.00      1.00       860\nweighted avg       1.00      1.00      1.00       860\n",
+    "train_size": 686,
+    "test_size": 860,
+    "pos_weight": 0.6333,
+    "train_pos_rate": 0.6122,
+    "test_pos_rate": 0.6988
+  }
+}

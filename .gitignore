@@ -1,0 +1,63 @@
+# ── Python ──────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+.eggs/
+.venv/
+venv/
+dist/
+build/
+
+# ── ML / Data ────────────────────────────────────────────────────────
+backend/data/raw/
+backend/data/processed/
+mlruns/
+*.npy
+*.pkl
+*.pt
+*.pth
+
+# ── Environment ──────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Node / Frontend ──────────────────────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/build/
+frontend/.vite/
+
+# ── OS ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+
+# ── IDE ──────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+*.suo
+*.user
+
+# ── GitHub / Copilot internals ────────────────────────────────────────
+.github/
+
+# ── Speckit ───────────────────────────────────────────────────────────
+.specify/
+specs/
+
+# ── Logs ─────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Coverage ─────────────────────────────────────────────────────────
+.coverage
+htmlcov/
+coverage/
+
+docs/*
