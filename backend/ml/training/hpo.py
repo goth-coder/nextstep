@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING
 
 import optuna
 import torch
-
 from models import LSTMClassifier
+
 from .evaluator import Evaluator
 from .trainer import TrainConfig, TrainingLoop
 
@@ -97,6 +97,7 @@ class HPORunner:
                 val_f1_internal=val_f1,
                 val_auc=0.0,  # not computed during HPO (test set unseen)
                 val_f1=0.0,  # idem
+                test_f1_oracle=0.0,  # idem
                 train_loss=train_loss,
             )
             registry.log_run(
@@ -134,14 +135,20 @@ class HPORunner:
         hidden_size = trial.suggest_categorical("hidden_size", self._HIDDEN_SIZES)
         num_layers = trial.suggest_categorical("num_layers", self._NUM_LAYERS)
         lr = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
-        dropout = trial.suggest_float("dropout", 0.0, 0.4)
-        epochs = trial.suggest_int("epochs", 60, 120)
+        epochs = trial.suggest_int("epochs", 60, 150)
         batch_size = trial.suggest_categorical("batch_size", self._BATCH_SIZES)
+        # weight_decay: L2 regularisation — works regardless of num_layers.
+        # Main lever against the Train F1 0.87 vs Val F1 0.76 gap.
+        weight_decay = trial.suggest_float("weight_decay", 1e-5, 1e-2, log=True)
 
-        # Optuna doesn't allow dropout > 0 when num_layers == 1 in PyTorch,
-        # so we clamp it here for consistency with LSTMClassifier behaviour.
-        if num_layers == 1:
-            dropout = 0.0
+        # pos_weight_multiplier: scales the neg/pos class weight in BCEWithLogitsLoss.
+        # Values >1 push the model toward higher recall (fewer missed positives)
+        # at the cost of precision.  Let Optuna find the best precision-recall tradeoff.
+        pos_weight_multiplier = trial.suggest_float("pos_weight_multiplier", 0.5, 4.0)
+
+        # PyTorch LSTM dropout only applies between layers (num_layers > 1).
+        # For single-layer models weight_decay is the sole regulariser.
+        dropout = trial.suggest_float("dropout", 0.0, 0.5) if num_layers > 1 else 0.0
 
         return TrainConfig(
             hidden_size=hidden_size,
@@ -150,13 +157,17 @@ class HPORunner:
             epochs=epochs,
             lr=lr,
             batch_size=batch_size,
+            weight_decay=weight_decay,
+            pos_weight_multiplier=pos_weight_multiplier,
         )
 
     @staticmethod
     def _trial_to_dict(trial: optuna.trial.FrozenTrial) -> dict:
         """Convert a frozen trial's params back to a TrainConfig-compatible dict."""
         params = dict(trial.params)
-        # Ensure dropout is 0.0 for single-layer models
+        # PyTorch ignores dropout for single-layer LSTMs; force 0.0 for consistency.
         if params.get("num_layers", 1) == 1:
             params["dropout"] = 0.0
+        # Ensure multiplier is present for configs tuned before this field existed
+        params.setdefault("pos_weight_multiplier", 1.0)
         return params

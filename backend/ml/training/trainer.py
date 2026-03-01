@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, WeightedRandomSampler
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +27,8 @@ class TrainConfig:
     epochs: int = 80
     lr: float = 1e-3
     batch_size: int = 32
+    weight_decay: float = 1e-4  # L2 regularisation — effective for any num_layers
+    pos_weight_multiplier: float = 1.0  # scales base neg/pos ratio in BCEWithLogitsLoss
     seed: int = 42
     # Logged to MLflow but not used by TrainingLoop directly
     extra_meta: dict = field(default_factory=dict)
@@ -39,6 +41,8 @@ class TrainConfig:
             "epochs": str(self.epochs),
             "lr": str(self.lr),
             "batch_size": str(self.batch_size),
+            "weight_decay": str(self.weight_decay),
+            "pos_weight_multiplier": str(self.pos_weight_multiplier),
             "seed": str(self.seed),
             **{k: str(v) for k, v in self.extra_meta.items()},
         }
@@ -75,11 +79,28 @@ class TrainingLoop:
             step_callback: optional fn(epoch, loss) for HPO pruning hooks.
         """
         torch.manual_seed(self._cfg.seed)
-        criterion = nn.BCEWithLogitsLoss(pos_weight=self._pos_weight)
-        optimizer = torch.optim.Adam(model.parameters(), lr=self._cfg.lr)
+        scaled_pw = self._pos_weight * self._cfg.pos_weight_multiplier
+        criterion = nn.BCEWithLogitsLoss(pos_weight=scaled_pw)
+        optimizer = torch.optim.Adam(model.parameters(), lr=self._cfg.lr, weight_decay=self._cfg.weight_decay)
 
         ds = TensorDataset(X_train, y_train)
-        loader = DataLoader(ds, batch_size=self._cfg.batch_size, shuffle=True)
+        # WeightedRandomSampler: ensure each batch has a balanced view of the
+        # minority class.  With ~17% positives and batch_size≤64, random
+        # shuffling can produce all-negative batches → wasted gradient steps.
+        labels_np = y_train.numpy()
+        n_pos = int(labels_np.sum())
+        n_neg = len(labels_np) - n_pos
+        sample_weights = torch.where(
+            y_train == 1,
+            torch.tensor(1.0 / max(n_pos, 1)),
+            torch.tensor(1.0 / max(n_neg, 1)),
+        )
+        sampler = WeightedRandomSampler(
+            weights=sample_weights,
+            num_samples=len(sample_weights),
+            replacement=True,
+        )
+        loader = DataLoader(ds, batch_size=self._cfg.batch_size, sampler=sampler)
 
         loss_curve: list[float] = []
         model.train()

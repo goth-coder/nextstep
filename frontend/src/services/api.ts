@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { DriftInfo, ModelInfo, PedagogicalAdvice, StudentDetail, StudentSummary } from '../types/student'
+import type { DriftInfo, ModelInfo, PedagogicalAdvice, PredictInput, PredictResult, StudentDetail, StudentSummary } from '../types/student'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080',
@@ -44,5 +44,33 @@ export async function getModelInfo(): Promise<ModelInfo> {
 
 export async function getModelDrift(): Promise<DriftInfo> {
   const response = await api.get<DriftInfo>('/api/model/drift')
+  return response.data
+}
+
+// ── On-demand prediction ──────────────────────────────────────────────────────
+
+export async function predict(input: PredictInput): Promise<PredictResult> {
+  const response = await api.post<PredictResult>('/api/predict', input)
+  return response.data
+}
+
+// ── Batch prediction ──────────────────────────────────────────────────────────
+
+export interface BatchPredictItem extends PredictInput {
+  student_id: number
+}
+
+export interface BatchPredictResult {
+  results: Array<{
+    student_id: number
+    risk_score: number
+    risk_tier: 'high' | 'medium' | 'low'
+  }>
+}
+
+export async function predictBatch(students: BatchPredictItem[]): Promise<BatchPredictResult> {
+  const response = await api.post<BatchPredictResult>('/api/predict/batch', { students }, {
+    timeout: 30_000,   // scoring 1000+ students can take a few seconds
+  })
   return response.data
 }

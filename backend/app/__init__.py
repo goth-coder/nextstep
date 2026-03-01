@@ -13,6 +13,8 @@ import os
 
 from flask import Flask
 
+from app.limiter import limiter
+
 log = logging.getLogger(__name__)
 
 
@@ -20,12 +22,20 @@ def create_app() -> Flask:
     app = Flask(__name__)
     app.config["JSON_SORT_KEYS"] = False
 
+    # ── CORS ─────────────────────────────────────────────────────────────────
+    # In production, restrict to the deployed domain via ALLOWED_ORIGIN env var.
+    # Falls back to "*" only when the var is unset (local dev).
+    allowed_origin = os.getenv("ALLOWED_ORIGIN", "*")
+
     @app.after_request
     def _add_cors_headers(response):
-        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Origin"] = allowed_origin
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-        response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
         return response
+
+    # ── Rate limiting ─────────────────────────────────────────────────────────
+    limiter.init_app(app)
 
     from app.repositories.mlflow_model import MLflowModelRepository
     from app.repositories.student_data import DiskStudentDataRepository
@@ -51,6 +61,7 @@ def create_app() -> Flask:
             log.error("Prediction cache failed to load: %s", exc, exc_info=True)
 
     from app.routes import routes_bp
+
     app.register_blueprint(routes_bp)
 
     log.info("Flask app created checkmark  routes=%s", [str(r) for r in app.url_map.iter_rules()])

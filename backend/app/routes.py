@@ -2,11 +2,14 @@
 Flask Blueprint: REST API routes.
 
 Endpoints:
-    GET /health
-    GET /api/students
-    GET /api/students/<int:student_id>
-    GET /api/students/<int:student_id>/advice
-    GET /api/model
+    GET  /health
+    GET  /api/students
+    GET  /api/students/<int:student_id>
+    GET  /api/students/<int:student_id>/advice
+    POST /api/predict
+    POST /api/predict/batch
+    GET  /api/model/drift
+    GET  /api/model
 """
 
 from __future__ import annotations
@@ -16,7 +19,9 @@ import os
 from datetime import datetime, timezone
 
 import mlflow
-from flask import Blueprint, current_app, jsonify
+from flask import Blueprint, current_app, jsonify, request
+
+from app.limiter import limiter
 
 log = logging.getLogger(__name__)
 routes_bp = Blueprint("routes", __name__)
@@ -83,6 +88,7 @@ def get_student(student_id: int):
 
 
 @routes_bp.get("/api/students/<int:student_id>/advice")
+@limiter.limit("20 per hour")
 def get_advice(student_id: int):
     cache = current_app.extensions["cache"]
     if not cache.is_ready():
@@ -115,6 +121,89 @@ def get_advice(student_id: int):
             "generated_at": generated_at,
         }
     ), 200
+
+
+@routes_bp.post("/api/predict")
+@limiter.limit("60 per hour")
+def predict_one():
+    """
+    On-demand risk score for arbitrary indicator values.
+
+    Body (JSON) — all fields optional, missing values default to 0:
+        iaa, ieg, ips, ida, ipv, inde  : float  (0–10 scale)
+        defasagem                       : int    (negative = behind grade)
+        fase_num                        : int    (0–8)
+        gender                          : int    (0 or 1)
+        age                             : float
+    """
+    cache = current_app.extensions["cache"]
+    if not cache.is_ready():
+        return jsonify({"error": "Model not yet loaded"}), 503
+
+    body = request.get_json(silent=True) or {}
+
+    VALID_KEYS = {"iaa", "ieg", "ips", "ida", "ipv", "inde", "defasagem", "fase_num", "gender", "age"}
+    unknown = set(body.keys()) - VALID_KEYS
+    if unknown:
+        return jsonify({"error": f"Unknown fields: {sorted(unknown)}"}), 422
+
+    try:
+        score = cache.predict_one(body)
+    except Exception as exc:  # noqa: BLE001
+        log.error("predict_one failed: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 500
+
+    high_thresh = float(os.getenv("RISK_HIGH", "0.7"))
+    med_thresh = float(os.getenv("RISK_MEDIUM", "0.3"))
+    tier = "high" if score >= high_thresh else "medium" if score >= med_thresh else "low"
+
+    return jsonify({"risk_score": round(score, 4), "risk_tier": tier, "input": body}), 200
+
+
+@routes_bp.post("/api/predict/batch")
+@limiter.limit("10 per minute")
+def predict_batch():
+    """
+    Batch risk scoring — score many students in a single request.
+
+    Body (JSON):
+        { "students": [ { "student_id": 1, "iaa": 7.2, ... }, ... ] }
+
+    Each item follows the same indicator schema as POST /api/predict.
+    Missing indicator values default to 0.
+
+    Response:
+        { "results": [ { "student_id": 1, "risk_score": 0.85, "risk_tier": "high" }, ... ] }
+    """
+    cache = current_app.extensions["cache"]
+    if not cache.is_ready():
+        return jsonify({"error": "Model not yet loaded"}), 503
+
+    body = request.get_json(silent=True) or {}
+    items = body.get("students")
+    if not isinstance(items, list):
+        return jsonify({"error": "'students' must be a list"}), 422
+
+    VALID_KEYS = {"student_id", "iaa", "ieg", "ips", "ida", "ipv", "inde", "defasagem", "fase_num", "gender", "age"}
+    high_thresh = float(os.getenv("RISK_HIGH", "0.7"))
+    med_thresh = float(os.getenv("RISK_MEDIUM", "0.3"))
+
+    results = []
+    for item in items:
+        unknown = set(item.keys()) - VALID_KEYS
+        if unknown:
+            return jsonify({"error": f"Unknown fields in batch item: {sorted(unknown)}"}), 422
+        student_id = item.get("student_id")
+        features = {k: v for k, v in item.items() if k != "student_id"}
+        try:
+            score = cache.predict_one(features)
+        except Exception as exc:  # noqa: BLE001
+            log.error("predict_batch item %s failed: %s", student_id, exc, exc_info=True)
+            return jsonify({"error": str(exc)}), 500
+        tier = "high" if score >= high_thresh else "medium" if score >= med_thresh else "low"
+        results.append({"student_id": student_id, "risk_score": round(score, 4), "risk_tier": tier})
+
+    return jsonify({"results": results}), 200
 
 
 @routes_bp.get("/api/model/drift")

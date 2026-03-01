@@ -2,6 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: nextstep-api-service
+  namespace: nextstep
   labels:
     app: nextstep-api
 spec:

@@ -119,13 +119,35 @@ def main() -> None:
         epochs=int(best_params.get("epochs", 80)),
         lr=float(best_params.get("lr", 1e-3)),
         batch_size=int(best_params.get("batch_size", 32)),
+        weight_decay=float(best_params.get("weight_decay", 1e-4)),
+        pos_weight_multiplier=float(best_params.get("pos_weight_multiplier", 1.0)),
     )
     result = train(config=best_cfg)
+
+    # ── Final summary ─────────────────────────────────────────────────────────
+    deployed_f1_str = f"{result.val_f1:.4f}" if result.val_f1 > 0 else "n/a"
+    oracle_f1_str = f"{result.test_f1_oracle:.4f}" if result.test_f1_oracle > 0 else "n/a"
+    transfer_pct = f"{result.val_f1 / result.test_f1_oracle * 100:.0f}%" if result.test_f1_oracle > 0 else "n/a"
     log.info(
-        "Final model registered — AUC=%.4f  F1=%.4f  threshold=%.4f",
-        result.val_auc,
-        result.val_f1,
-        result.threshold,
+        "\n"
+        "\n╔%s╗"
+        "\n║  🎓  NextStep LSTM — Training Complete                        ║"
+        "\n╠%s╣"
+        "\n║  AUC (ROC)         : %-10s  [min 0.70]             ║"
+        "\n║  F1  (oracle/test) : %-10s  [min 0.55 — gate]     ║"
+        "\n║  F1  (deployed)    : %-10s  [val threshold on test]║"
+        "\n║  Threshold transfer: %-10s                         ║"
+        "\n║  Decision threshold: %-10s                         ║"
+        "\n║  Model             : nextstep-lstm @staging @prod    ║"
+        "\n╚%s╝\n",
+        "═" * 56,
+        "═" * 56,
+        f"{result.val_auc:.4f}",
+        oracle_f1_str,
+        deployed_f1_str,
+        transfer_pct,
+        f"{result.threshold:.4f}",
+        "═" * 56,
     )
 
 

@@ -3,7 +3,21 @@ ETL pipeline for PEDE 2022-2024 dataset.
 
 Strategy
 --------
-Target: P(defasagem next year < 0) — risk of continued school lag.
+Target: P(aluno piora no próximo ciclo) — risco de aprofundamento da defasagem.
+
+  y = 1  if  defasagem_next < defasagem_current  (defasagem piorou, ficou mais negativa)
+  y = 0  if  defasagem_next >= defasagem_current (manteve ou melhorou)
+
+Exemplos:
+  def=-2, próximo=-2 → y=0  (estável)
+  def=-2, próximo=-3 → y=1  (piorou ✓)
+  def=-2, próximo=-1 → y=0  (melhorou)
+  def= 0, próximo=-1 → y=1  (começou a defasar ✓)
+  def= 1, próximo= 0 → y=0  (ainda adiantado, menos)
+
+NOTE: o target antigo era (defasagem_next < 0) — "o aluno está defasado?"
+Isso é o estado atual, não a transição. Foi corrigido para capturar a
+direção do movimento: predict P(piora) dado o estado de hoje.
 
 Training pairs (temporal, no leakage):
   • Train — year 2022 features → defasagem 2023 label  (600 pairs)
@@ -233,7 +247,10 @@ def run_etl() -> None:
         t = df_t[df_t["RA"].isin(shared)].set_index("RA")
         t1 = df_t1[df_t1["RA"].isin(shared)].set_index("RA")[["defasagem_raw"]]
         merged = t.join(t1, rsuffix="_next")
-        y = (merged["defasagem_raw_next"] < 0).astype("float32")
+        # Target: did the student's defasagem get WORSE (more negative) next year?
+        # y=1 → piorou (defasagem_next < defasagem_current)
+        # y=0 → manteve ou melhorou
+        y = (merged["defasagem_raw_next"] < merged["defasagem"]).astype("float32")
 
         # Drop rows with ANY null in feature source columns (systematic non-evaluation)
         available = [c for c in FEATURE_SOURCE_COLS if c in merged.columns]

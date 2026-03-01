@@ -1,0 +1,90 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nextstep-network-policy
+  namespace: nextstep
+spec:
+  # ── API: only accepts traffic from web pods and the ingress controller ──
+  podSelector:
+    matchLabels:
+      app: nextstep-api
+  policyTypes:
+    - Ingress
+    - Egress
+    ingress:
+      - from:
+          - podSelector:
+              matchLabels:
+                app: nextstep-web
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: ingress-nginx
+        ports:
+          - port: 8080
+    egress:
+      - to:
+          - podSelector:
+              matchLabels:
+                app: nextstep-mlflow
+        ports:
+          - port: 5000
+      # Allow DNS resolution
+      - ports:
+          - port: 53
+            protocol: UDP
+          - port: 53
+            protocol: TCP
+      # Allow HTTPS to Groq API
+      - ports:
+          - port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nextstep-web-policy
+  namespace: nextstep
+spec:
+  podSelector:
+    matchLabels:
+      app: nextstep-web
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 80
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: nextstep-api
+      ports:
+        - port: 8080
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nextstep-mlflow-policy
+  namespace: nextstep
+spec:
+  podSelector:
+    matchLabels:
+      app: nextstep-mlflow
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: nextstep-api
+      ports:
+        - port: 5000

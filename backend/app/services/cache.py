@@ -50,3 +50,9 @@ class StudentCacheService:
 
     def count(self) -> int:
         return len(self._cache)
+
+    def predict_one(self, raw_features: dict) -> float:
+        """On-demand inference for arbitrary indicator values (bypasses cache)."""
+        if not self._ready:
+            raise RuntimeError("Model not loaded yet.")
+        return self._prediction_service.predict_one(raw_features)

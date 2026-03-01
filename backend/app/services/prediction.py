@@ -17,6 +17,21 @@ from app.domain.student import Indicators, StudentRecord
 
 log = logging.getLogger(__name__)
 
+# Feature order must match data_loader.py FEATURES list exactly.
+# Keys are lowercase (API convention) mapped to ETL column names.
+_API_TO_FEATURE = [
+    ("iaa", "IAA"),
+    ("ieg", "IEG"),
+    ("ips", "IPS"),
+    ("ida", "IDA"),
+    ("ipv", "IPV"),
+    ("inde", "INDE"),
+    ("defasagem", "defasagem"),
+    ("fase_num", "fase_num"),
+    ("gender", "gender"),
+    ("age", "age"),
+]
+
 
 class PredictionService:
     """
@@ -75,3 +90,30 @@ class PredictionService:
             records.append(record)
 
         return records
+
+    def predict_one(self, raw_features: dict) -> float:
+        """
+        On-demand inference for a single set of raw (unscaled) indicator values.
+
+        Parameters
+        ----------
+        raw_features : dict
+            Lowercase API keys (iaa, ieg, ips, ida, ipv, inde,
+            defasagem, fase_num, gender, age). Missing keys default to 0.0.
+
+        Returns
+        -------
+        float — risk score in [0, 1].
+        """
+        if not self._model_repo.is_loaded:
+            raise RuntimeError("Model not loaded. Call load() first.")
+
+        scaler = self._data_repo.load_scaler()
+
+        # Build feature vector in the exact ETL column order
+        row = [float(raw_features.get(api_key, 0.0)) for api_key, _ in _API_TO_FEATURE]
+        X_raw = np.array([row], dtype="float32")  # shape (1, 10)
+        X_scaled = scaler.transform(X_raw).astype("float32")
+
+        scores = self._model_repo.predict(X_scaled)
+        return float(scores[0])

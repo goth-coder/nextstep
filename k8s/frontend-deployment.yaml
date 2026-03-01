@@ -2,10 +2,11 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: nextstep-web
+  namespace: nextstep
   labels:
     app: nextstep-web
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: nextstep-web
@@ -14,11 +15,20 @@ spec:
       labels:
         app: nextstep-web
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101   # nginx default non-root user
       containers:
         - name: web
-          image: gcr.io/PROJECT_ID/nextstep-web:IMAGE_TAG_PLACEHOLDER
+          image: gcr.io/nextstep-fiap-project/nextstep-web:IMAGE_TAG_PLACEHOLDER
           ports:
             - containerPort: 80
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false  # nginx writes cache/pid files
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_BIND_SERVICE"]
           resources:
             requests:
               memory: "64Mi"

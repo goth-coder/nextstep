@@ -188,6 +188,22 @@ Sugestão pedagógica gerada pelo Groq (sempre HTTP 200).
 }
 ```
 
+### `POST /api/predict`
+Predição on-demand para valores brutos de indicadores (não precisa ser um aluno do dataset).
+Útil para simulações e testes de what-if. Todos os campos são opcionais (padrão: 0).
+```json
+// Request body
+{
+  "iaa": 7.2, "ieg": 6.5, "ips": 5.0, "ida": 4.0,
+  "ipv": 6.0, "inde": 6.8, "defasagem": -1,
+  "fase_num": 3, "gender": 0, "age": 14
+}
+
+// Response
+{ "risk_score": 0.3124, "risk_tier": "medium", "input": { ... } }
+```
+Limitado a 60 requisições/hora por IP. IPP não entra no modelo (display-only).
+
 ---
 
 ## Pipeline de ML

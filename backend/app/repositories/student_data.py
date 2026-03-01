@@ -44,3 +44,13 @@ class DiskStudentDataRepository:
         X = np.load(path)
         log.info("Loaded inference features: shape=%s", X.shape)
         return X
+
+    def load_scaler(self):
+        """Load the RobustScaler fitted during ETL (used for on-demand /predict)."""
+        path = self._dir / "scaler.pkl"
+        if not path.exists():
+            raise FileNotFoundError(f"scaler.pkl not found at {path}. Run 'python ml/data_loader.py' first.")
+        with open(path, "rb") as f:
+            scaler = pickle.load(f)
+        log.info("Loaded scaler: %s", type(scaler).__name__)
+        return scaler

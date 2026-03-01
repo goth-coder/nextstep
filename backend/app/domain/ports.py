@@ -53,3 +53,7 @@ class StudentDataRepository(Protocol):
     def load_features(self) -> "np.ndarray":
         """Return feature matrix X of shape (N, input_size) for inference."""
         ...
+
+    def load_scaler(self) -> Any:
+        """Return the fitted sklearn scaler (e.g. RobustScaler) used during ETL."""
+        ...

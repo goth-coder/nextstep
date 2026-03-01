@@ -71,3 +71,24 @@ export interface DriftInfo {
   histogram: Array<{ bucket: string; count: number; from: number; to: number }>
   computed_at: string
 }
+
+// ── On-demand predict ─────────────────────────────────────────────────────────
+
+export interface PredictInput {
+  iaa?: number
+  ieg?: number
+  ips?: number
+  ida?: number
+  ipv?: number
+  inde?: number
+  defasagem?: number
+  fase_num?: number
+  gender?: number
+  age?: number
+}
+
+export interface PredictResult {
+  risk_score: number
+  risk_tier: RiskTier
+  input: PredictInput
+}

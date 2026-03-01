@@ -4,7 +4,7 @@ import AppShell from '../components/AppShell'
 import ErrorState from '../components/ErrorState'
 import RiskBadge from '../components/RiskBadge'
 import StatCards from '../components/StatCards'
-import { getStudents } from '../services/api'
+import { getOrFetchStudents, invalidateStudentCache } from '../services/studentCache'
 import { colors, radius, shadows, typography } from '../styles/theme'
 import type { RiskTier, StudentSummary } from '../types/student'
 
@@ -36,7 +36,7 @@ export default function Dashboard() {
   const fetchStudents = useCallback(async () => {
     setStatus('loading')
     try {
-      const data = await getStudents()
+      const data = await getOrFetchStudents()
       setStudents(data.students)
       setStatus('success')
     } catch {
@@ -44,6 +44,11 @@ export default function Dashboard() {
       setStatus('error')
     }
   }, [])
+
+  const handleRetry = useCallback(() => {
+    invalidateStudentCache()
+    fetchStudents()
+  }, [fetchStudents])
 
   useEffect(() => { fetchStudents() }, [fetchStudents])
 
@@ -83,7 +88,7 @@ export default function Dashboard() {
           Student Risk Dashboard
         </h1>
         <p style={{ color: colors.gray500, marginTop: '0.25rem', fontSize: typography.sizes.sm }}>
-          PEDE 2022–2024 · Sorted by dropout risk, highest first
+          Sorted by school delay risk, highest first
         </p>
       </div>
 
@@ -95,7 +100,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {status === 'error' && <ErrorState message={errorMsg} onRetry={fetchStudents} />}
+      {status === 'error' && <ErrorState message={errorMsg} onRetry={handleRetry} />}
 
       {status === 'success' && (
         <>

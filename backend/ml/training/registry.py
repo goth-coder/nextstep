@@ -102,6 +102,8 @@ class MLflowRegistry:
                 metrics["val_auc"] = result.val_auc
             if result.val_f1 > 0.0:
                 metrics["val_f1"] = result.val_f1
+            if result.test_f1_oracle > 0.0:
+                metrics["test_f1_oracle"] = result.test_f1_oracle
             mlflow.log_metrics(metrics)
 
             # Scaler artifact (optional)
@@ -138,3 +140,14 @@ class MLflowRegistry:
         for alias in aliases:
             self._client.set_registered_model_alias(self._model_name, alias, version_number)
             log.info("Set alias '%s' → %s v%s", alias, self._model_name, version_number)
+
+        aliases_str = " + ".join(f"@{a}" for a in aliases)
+        log.info(
+            "\n"
+            "  ✅  Model promoted: %s v%s  [%s]\n"
+            "  🚀  Next API restart / deploy will load this version automatically.\n"
+            "      (StudentCacheService.load() fetches alias @prod from MLflow at startup)",
+            self._model_name,
+            version_number,
+            aliases_str,
+        )

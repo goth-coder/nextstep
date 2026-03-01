@@ -14,8 +14,9 @@ on:
         options: ["production", "staging"]
 
 env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  PROJECT_ID: nextstep-fiap-project
   REGION: us-central1
+  DOMAIN: nextstep.app
 
 jobs:
   build-and-deploy:
@@ -66,5 +67,38 @@ jobs:
           cluster_name: ${{ secrets.GKE_CLUSTER_NAME }}
           location: ${{ env.REGION }}
 
+      - name: Apply namespace and config
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/backend-deployment.yaml  # includes ConfigMap
+
       - name: Deploy to GKE
         run: kubectl apply -f k8s/
+
+      - name: Wait for API rollout
+        run: |
+          kubectl rollout status deployment/nextstep-api \
+            --namespace=nextstep --timeout=120s
+
+      - name: Wait for web rollout
+        run: |
+          kubectl rollout status deployment/nextstep-web \
+            --namespace=nextstep --timeout=60s
+
+      - name: Smoke test — health endpoint
+        run: |
+          sleep 10
+          curl -f --retry 5 --retry-delay 5 \
+            https://$DOMAIN/health || exit 1
+
+      - name: Smoke test — students endpoint
+        run: |
+          curl -f --retry 3 --retry-delay 5 \
+            "https://$DOMAIN/api/students?limit=1" || exit 1
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "Deploy failed — rolling back..."
+          kubectl rollout undo deployment/nextstep-api --namespace=nextstep
+          kubectl rollout undo deployment/nextstep-web --namespace=nextstep

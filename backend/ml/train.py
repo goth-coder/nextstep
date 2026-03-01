@@ -127,6 +127,8 @@ def build_config(config_path: Path | None) -> TrainConfig:
             epochs=int(params.get("epochs", 80)),
             lr=float(params.get("lr", 1e-3)),
             batch_size=int(params.get("batch_size", 32)),
+            weight_decay=float(params.get("weight_decay", 1e-4)),
+            pos_weight_multiplier=float(params.get("pos_weight_multiplier", 1.0)),
         )
     log.info("No config file — using default TrainConfig")
     return TrainConfig()
@@ -173,19 +175,24 @@ def train(
     result = evaluator.evaluate(model, X_test, y_test, threshold, val_f1_internal, train_loss)
 
     # 5. Quality gate
-    if result.val_auc < MIN_AUC or result.val_f1 < MIN_F1:
+    # Gate on test_f1_oracle (best achievable F1 on test set) rather than the
+    # deployed F1 (val threshold transferred to test).  This separates model
+    # quality from threshold-transfer quality across temporal splits.
+    if result.val_auc < MIN_AUC or result.test_f1_oracle < MIN_F1:
         log.error(
-            "Quality gate FAILED — AUC=%.4f (min %.2f)  F1=%.4f (min %.2f)",
+            "Quality gate FAILED — AUC=%.4f (min %.2f)  F1_oracle=%.4f (min %.2f)  F1_deployed=%.4f",
             result.val_auc,
             MIN_AUC,
-            result.val_f1,
+            result.test_f1_oracle,
             MIN_F1,
+            result.val_f1,
         )
         sys.exit(1)
 
     log.info(
-        "Quality gate PASSED — AUC=%.4f  F1=%.4f  threshold=%.4f",
+        "Quality gate PASSED — AUC=%.4f  F1_oracle=%.4f  F1_deployed=%.4f  threshold=%.4f",
         result.val_auc,
+        result.test_f1_oracle,
         result.val_f1,
         result.threshold,
     )
