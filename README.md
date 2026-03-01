@@ -6,6 +6,8 @@
 **Dataset**: PEDE 2022-2024 (FIAP Datathon) · 1 156 alunos ativos · previsão para ciclo 2025  
 **Último modelo**: v37 @prod · AUC=0.827 · F1=0.762 · threshold=0.284 (PR curve) · Optuna 20 trials
 
+![Perfil de aluno com score de risco, indicadores PEDE e recomendação pedagógica gerada por IA](docs/ss.png)
+
 ---
 
 ## Início Rápido

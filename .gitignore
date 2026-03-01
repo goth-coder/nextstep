@@ -61,3 +61,7 @@ htmlcov/
 coverage/
 
 docs/*
+!docs/*.png
+!docs/*.jpg
+!docs/*.gif
+!docs/*.webp
