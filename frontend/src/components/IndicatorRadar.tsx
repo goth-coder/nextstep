@@ -1,8 +1,10 @@
 /**
  * SVG radar chart for student indicators — no external charting library required.
  * Renders up to 8 axes evenly distributed around a center point.
+ * Data points show a numeric tooltip on hover.
  */
 
+import { useState } from 'react'
 import { colors, typography } from '../styles/theme'
 
 interface IndicatorRadarProps {
@@ -30,7 +32,24 @@ function pathFromPoints(points: { x: number; y: number }[]) {
   )
 }
 
+interface TooltipState {
+  idx: number
+  x: number
+  y: number
+}
+
+function formatRawValue(key: string, raw: number | null): string {
+  if (raw === null || raw === undefined) return 'N/A'
+  if (key === 'defasagem') {
+    const v = Math.round(raw)
+    return `${v > 0 ? '+' : ''}${v} ${Math.abs(v) === 1 ? 'fase' : 'fases'}`
+  }
+  return raw.toFixed(2)
+}
+
 export default function IndicatorRadar({ indicators, labels }: IndicatorRadarProps) {
+  const [tooltip, setTooltip] = useState<TooltipState | null>(null)
+
   const keys = Object.keys(labels).filter((k) => k in indicators)
   const n = keys.length
   if (n < 3) return null
@@ -114,16 +133,68 @@ export default function IndicatorRadar({ indicators, labels }: IndicatorRadarPro
           strokeLinejoin="round"
         />
 
-        {/* Data points */}
+        {/* Data points — hover to see numeric value */}
         {dataPoints.map((p, i) => (
-          <circle
+          <g
             key={i}
-            cx={p.x.toFixed(1)}
-            cy={p.y.toFixed(1)}
-            r="4"
-            fill={colors.brandAccent}
-          />
+            style={{ cursor: 'pointer' }}
+            onMouseEnter={() => setTooltip({ idx: i, x: p.x, y: p.y })}
+            onMouseLeave={() => setTooltip(null)}
+          >
+            {/* Larger invisible hit area */}
+            <circle cx={p.x.toFixed(1)} cy={p.y.toFixed(1)} r="10" fill="transparent" />
+            <circle
+              cx={p.x.toFixed(1)}
+              cy={p.y.toFixed(1)}
+              r={tooltip?.idx === i ? '5.5' : '4'}
+              fill={colors.brandAccent}
+              stroke="white"
+              strokeWidth={tooltip?.idx === i ? '2' : '0'}
+              style={{ transition: 'r 0.1s, stroke-width 0.1s' }}
+            />
+          </g>
         ))}
+
+        {/* Tooltip */}
+        {tooltip !== null && (() => {
+          const key = keys[tooltip.idx]
+          const label = labels[key].split(' — ')[0].split(' – ')[0]
+          const value = formatRawValue(key, indicators[key] ?? null)
+          const text = `${label}: ${value}`
+          const charWidth = 6.5
+          const boxW = text.length * charWidth + 16
+          const boxH = 22
+          // Offset tooltip so it doesn't overlap the point; flip if too close to edge
+          const offX = tooltip.x + boxW / 2 + 8 > SIZE ? -boxW / 2 - 8 : boxW / 2 + 8
+          const offY = tooltip.y - boxH - 8 < 0 ? boxH + 8 : -boxH / 2
+          const tx = tooltip.x + offX
+          const ty = tooltip.y + offY
+          return (
+            <g style={{ pointerEvents: 'none' }}>
+              <rect
+                x={(tx - boxW / 2).toFixed(1)}
+                y={(ty - boxH / 2).toFixed(1)}
+                width={boxW.toFixed(1)}
+                height={boxH.toFixed(1)}
+                rx="5"
+                fill={colors.gray900}
+                opacity="0.92"
+              />
+              <text
+                x={tx.toFixed(1)}
+                y={ty.toFixed(1)}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fontSize="11"
+                fontFamily={typography.fontFamily}
+                fontWeight="600"
+                fill="white"
+              >
+                {text}
+              </text>
+            </g>
+          )
+        })()}
 
         {/* Axis labels */}
         {keys.map((k, i) => {

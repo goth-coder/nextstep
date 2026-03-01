@@ -1,0 +1,70 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment"
+        required: true
+        default: "production"
+        type: choice
+        options: ["production", "staging"]
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: us-central1
+
+jobs:
+  build-and-deploy:
+    name: Build, Push & Deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download MLflow registry artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mlflow-registry
+          path: mlruns/
+        continue-on-error: true  # Allow fresh deploy without prior train artifact
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker
+
+      - name: Build & push backend image
+        run: |
+          docker build -t gcr.io/$PROJECT_ID/nextstep-api:${{ github.sha }} ./backend
+          docker push gcr.io/$PROJECT_ID/nextstep-api:${{ github.sha }}
+
+      - name: Build & push frontend image
+        run: |
+          docker build -t gcr.io/$PROJECT_ID/nextstep-web:${{ github.sha }} ./frontend
+          docker push gcr.io/$PROJECT_ID/nextstep-web:${{ github.sha }}
+
+      - name: Update Kubernetes manifests with new image tags
+        run: |
+          sed -i "s|IMAGE_TAG_PLACEHOLDER|${{ github.sha }}|g" k8s/*.yaml
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ secrets.GKE_CLUSTER_NAME }}
+          location: ${{ env.REGION }}
+
+      - name: Deploy to GKE
+        run: kubectl apply -f k8s/

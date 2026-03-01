@@ -70,6 +70,8 @@ class StudentRecord:
     phase: str  # Human-readable phase label ("Fase 3", "ALFA", …)
     phase_num: int  # Normalised phase integer 0-8
     class_group: str  # Turma string
+    gender: int  # 0=Feminino, 1=Masculino
+    age: Optional[int]  # Age in the observation year
     year: int  # Year of the observation used for inference
     risk_score: float  # Model output — P(defasagem next year < 0) in [0, 1]
     risk_tier: RiskTier  # Categorical derivation of risk_score
@@ -84,6 +86,8 @@ class StudentRecord:
         phase: str,
         phase_num: int,
         class_group: str,
+        gender: int,
+        age: Optional[int],
         year: int,
         risk_score: float,
         indicators: Indicators,
@@ -95,6 +99,8 @@ class StudentRecord:
             phase=phase,
             phase_num=phase_num,
             class_group=class_group,
+            gender=gender,
+            age=age,
             year=year,
             risk_score=round(risk_score, 4),
             risk_tier=RiskTier.from_score(risk_score),

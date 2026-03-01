@@ -30,7 +30,7 @@ class DiskStudentDataRepository:
     def load_metadata(self) -> list[dict[str, Any]]:
         path = self._dir / "students_meta.pkl"
         if not path.exists():
-            raise FileNotFoundError(f"students_meta.pkl not found at {path}. Run 'python src/data_loader.py' first.")
+            raise FileNotFoundError(f"students_meta.pkl not found at {path}. Run 'python ml/data_loader.py' first.")
         with open(path, "rb") as f:
             meta: list[dict] = pickle.load(f)
         log.info("Loaded metadata for %d students", len(meta))
@@ -40,7 +40,7 @@ class DiskStudentDataRepository:
         """Load the inference feature matrix (2024 students, already scaled)."""
         path = self._dir / "X_inference.npy"
         if not path.exists():
-            raise FileNotFoundError(f"X_inference.npy not found at {path}. Run 'python src/data_loader.py' first.")
+            raise FileNotFoundError(f"X_inference.npy not found at {path}. Run 'python ml/data_loader.py' first.")
         X = np.load(path)
         log.info("Loaded inference features: shape=%s", X.shape)
         return X

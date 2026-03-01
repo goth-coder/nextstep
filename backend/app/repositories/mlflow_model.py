@@ -37,7 +37,16 @@ class MLflowModelRepository:
     # ── ModelRepository protocol ──────────────────────────────────────────────
 
     def load(self) -> None:
+        import sys
+        from pathlib import Path
+
         import mlflow.pytorch
+
+        # MLflow pickle-serialised the model class as `models.lstm.LSTMClassifier`.
+        # That module lives under backend/ml/, which gunicorn doesn't add to sys.path.
+        src_path = str(Path(__file__).parent.parent.parent / "ml")
+        if src_path not in sys.path:
+            sys.path.insert(0, src_path)
 
         mlflow.set_tracking_uri(self._tracking_uri)
         uri = f"models:/{self._model_name}@{self._alias}"

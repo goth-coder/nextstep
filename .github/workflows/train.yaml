@@ -1,0 +1,50 @@
+name: Train LSTM
+
+on:
+  workflow_dispatch:
+    inputs:
+      promote_to_prod:
+        description: "Promote @staging to @prod after training?"
+        required: false
+        default: "false"
+        type: choice
+        options: ["true", "false"]
+
+jobs:
+  train:
+    name: ETL + Train + Register
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start MLflow service
+        run: docker compose up mlflow -d
+
+      - name: Wait for MLflow to be healthy
+        run: |
+          for i in {1..30}; do
+            if curl -sf http://localhost:5000/health; then
+              echo "MLflow is ready"
+              break
+            fi
+            echo "Waiting for MLflow ($i/30)…"
+            sleep 2
+          done
+
+      - name: Run ETL pipeline
+        run: docker compose run --rm api python ml/data_loader.py
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
+      - name: Train LSTM & register model
+        run: docker compose run --rm api python ml/train.py
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MLFLOW_TRACKING_URI: http://mlflow:5000
+
+      - name: Upload MLflow registry artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlflow-registry
+          path: mlruns/
+          retention-days: 30

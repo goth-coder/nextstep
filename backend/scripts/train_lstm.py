@@ -32,7 +32,7 @@ _BACKEND_DIR = Path(__file__).parent.parent
 PROCESSED_DIR = _BACKEND_DIR / "data" / "processed"
 
 MODEL_NAME = "nextstep-lstm"
-INPUT_SIZE = 8  # IAA, IEG, IPS, IDA, IPV, INDE, defasagem, fase_num  (IPP: display-only, not a model feature)
+INPUT_SIZE = 10  # IAA, IEG, IPS, IDA, IPV, INDE, defasagem, fase_num, gender, age
 HIDDEN_SIZE = 64
 NUM_LAYERS = 1
 EPOCHS = 80
@@ -155,6 +155,7 @@ def train() -> None:
                 "seed": SEED,
                 "scaler": "RobustScaler",
                 "threshold_method": "PR_curve_F1_max_on_val",
+                "extra_features": "gender+age",
             }
         )
 
@@ -252,18 +253,14 @@ def train() -> None:
             registered_model_name=MODEL_NAME,
         )
 
-    # ── 10. Promote to @staging alias ─────────────────────────────────────────
+    # ── 10. Promote to @staging and @prod aliases ────────────────────────────
     client = MlflowClient(tracking_uri=tracking_uri)
     # Get the latest version just created
     versions = client.search_model_versions(f"name='{MODEL_NAME}'")
     latest_version = max(int(v.version) for v in versions)
     client.set_registered_model_alias(MODEL_NAME, "staging", str(latest_version))
-    log.info("Model v%d promoted to @staging alias ✓", latest_version)
-    log.info(
-        "To promote to production run:\n  mlflow models set-alias --model-name %s --alias prod --version %d",
-        MODEL_NAME,
-        latest_version,
-    )
+    client.set_registered_model_alias(MODEL_NAME, "prod", str(latest_version))
+    log.info("Model v%d promoted to @staging and @prod aliases ✓", latest_version)
 
     log.info("Training pipeline complete ✓")
 

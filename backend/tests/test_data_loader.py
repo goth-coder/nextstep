@@ -64,10 +64,10 @@ def tmp_project(tmp_path: Path):
 def _run_etl(tmp_project: dict) -> None:
     """Import and run the ETL pipeline with patched paths."""
     with (
-        patch("src.data_loader._DEFAULT_PATHS", [tmp_project["csv_path"]]),
-        patch("src.data_loader.PROCESSED_DIR", tmp_project["processed_dir"]),
+        patch("ml.data_loader._DEFAULT_PATHS", [tmp_project["csv_path"]]),
+        patch("ml.data_loader.PROCESSED_DIR", tmp_project["processed_dir"]),
     ):
-        from src.data_loader import run_etl
+        from ml.data_loader import run_etl
 
         run_etl()
 

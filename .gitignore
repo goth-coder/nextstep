@@ -39,13 +39,13 @@ Thumbs.db
 
 # ── IDE ──────────────────────────────────────────────────────────────
 .idea/
-.vscode/
 *.iml
 *.suo
 *.user
 
 # ── GitHub / Copilot internals ────────────────────────────────────────
-.github/
+.github/agents/
+.github/prompts/
 
 # ── Speckit ───────────────────────────────────────────────────────────
 .specify/

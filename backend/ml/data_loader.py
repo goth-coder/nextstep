@@ -29,8 +29,8 @@ Dropped from model entirely:
   defasagem_bin — derived manually, redundant
 
 Usage:
-    python src/data_loader.py
-    DATA_PATH=/path/to/xlsx python src/data_loader.py
+    python ml/data_loader.py
+    DATA_PATH=/path/to/xlsx python ml/data_loader.py
 """
 
 from __future__ import annotations
@@ -69,8 +69,50 @@ _XLSX_CANDIDATES = [
 # ── Feature constants ──────────────────────────────────────────────────────────
 # IPP excluded from model features: absent in 2022 (100% synthetic if imputed for train pairs).
 # IPP is still stored in students_meta for frontend display.
-FEATURES = ["IAA", "IEG", "IPS", "IDA", "IPV", "INDE", "defasagem", "fase_num"]
-INPUT_SIZE = len(FEATURES)  # 8
+FEATURES = ["IAA", "IEG", "IPS", "IDA", "IPV", "INDE", "defasagem", "fase_num", "gender", "age"]
+INPUT_SIZE = len(FEATURES)  # 10
+
+
+# ── Demographic helpers ───────────────────────────────────────────────────────
+
+
+def _encode_gender(val) -> int:
+    """Encode gender to binary: Feminino/Menina → 0, Masculino/Menino → 1."""
+    s = str(val).strip().lower()
+    if s in ("feminino", "menina", "f"):
+        return 0
+    if s in ("masculino", "menino", "m"):
+        return 1
+    return 0  # default fallback (no nulls in dataset)
+
+
+def _get_age_col(df: pd.DataFrame, year: int) -> str | None:
+    """Find the age column for a given year sheet."""
+    for col in [f"Idade {str(year)[-2:]}", f"Idade {year}", "Idade"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def _extract_age_value(val) -> float | None:
+    """
+    Extract numeric age from a raw cell value.
+
+    In PEDE2023, the Idade column is stored as an Excel date serial misinterpreted
+    as datetime: datetime(1900, 1, 8) means serial 8 → age 8.
+    We recover the original integer by computing days since 1899-12-31.
+    """
+    import datetime as _dt
+
+    if isinstance(val, _dt.datetime):
+        # Excel epoch: serial 1 = 1900-01-01, so delta from 1899-12-31 gives serial
+        epoch = _dt.datetime(1899, 12, 31)
+        return float((val - epoch).days)
+    try:
+        v = float(val)
+        return None if (v != v) else v  # NaN check
+    except (TypeError, ValueError):
+        return None
 
 
 # ── Fase normalisation ────────────────────────────────────────────────────────
@@ -134,6 +176,18 @@ def _load_sheet(xl: pd.ExcelFile, sheet: str, year: int) -> pd.DataFrame:
     if "defasagem_raw" in df.columns:
         df["defasagem"] = df["defasagem_raw"]
 
+    # Demographic features
+    if "Gênero" in df.columns:
+        df["gender"] = df["Gênero"].apply(_encode_gender)
+    else:
+        df["gender"] = 0
+
+    age_col = _get_age_col(df, year)
+    if age_col:
+        df["age"] = df[age_col].apply(_extract_age_value)
+    else:
+        df["age"] = np.nan
+
     return df
 
 
@@ -172,7 +226,7 @@ def run_etl() -> None:
     # ── 3. Temporal train/test pairs ─────────────────────────────────────────
     # IPP is NOT a model feature (absent in 2022 → would be 100% synthetic for train pairs).
     # IPP is stored separately in students_meta for frontend display only.
-    FEATURE_SOURCE_COLS = ["IAA", "IEG", "IPS", "IDA", "IPV", "INDE", "defasagem", "fase_num"]
+    FEATURE_SOURCE_COLS = ["IAA", "IEG", "IPS", "IDA", "IPV", "INDE", "defasagem", "fase_num", "gender", "age"]
 
     def make_pairs(df_t: pd.DataFrame, df_t1: pd.DataFrame, label: str) -> tuple[pd.DataFrame, pd.Series]:
         shared = set(df_t["RA"]) & set(df_t1["RA"])
@@ -211,7 +265,7 @@ def run_etl() -> None:
     )
     indicator_medians = {
         col: float(train_df[col].median())
-        for col in ["IAA", "IEG", "IPS", "IDA", "IPV", "defasagem"]
+        for col in ["IAA", "IEG", "IPS", "IDA", "IPV", "defasagem", "gender", "age"]
         if col in train_df.columns
     }
     # IPP: imputed from 2023 data for display only (not a model feature)
@@ -227,6 +281,28 @@ def run_etl() -> None:
     for col, med in indicator_medians.items():
         if col in d24_clean.columns:
             d24_clean[col] = d24_clean[col].fillna(med)
+
+    # Treat IEG=0 and IDA=0 as likely data-entry errors or missing records.
+    # Strategy: save the original zero for frontend display, impute with phase
+    # median from train set (fallback to global train median) for the model only.
+    _ZERO_AS_MISSING = ["IEG", "IDA"]
+    for _col in _ZERO_AS_MISSING:
+        if _col in d24_clean.columns:
+            d24_clean[f"{_col}_display"] = d24_clean[_col].copy()  # raw value for UI
+            _zero_mask = d24_clean[_col] == 0.0
+            if _zero_mask.any():
+                _phase_med = (
+                    train_df.groupby("fase_num")[_col].median().to_dict()
+                    if _col in train_df.columns else {}
+                )
+                _global_med = float(train_df[_col].median()) if _col in train_df.columns else 7.0
+                _imputed = d24_clean.loc[_zero_mask, "fase_num"].map(_phase_med).fillna(_global_med)
+                d24_clean.loc[_zero_mask, _col] = _imputed
+                log.info(
+                    "Zero-imputation %s: %d students → phase/train medians (display preserves 0.0)",
+                    _col, int(_zero_mask.sum()),
+                )
+
     # IPP for display only — impute with 2023 phase medians
     if "IPP" not in d24_clean.columns:
         d24_clean["IPP"] = np.nan
@@ -274,11 +350,13 @@ def run_etl() -> None:
                 "phase": phase_label,
                 "fase_num": fase_num,
                 "class_group": str(row.get("Turma", "N/A")),
+                "gender": int(row.get("gender", 0)),
+                "age": _safe_int(row.get("age")),
                 "year": 2024,
                 "iaa": _safe_float(row.get("IAA")),
-                "ieg": _safe_float(row.get("IEG")),
+                "ieg": _safe_float(row.get("IEG_display", row.get("IEG"))),  # original (may be 0)
                 "ips": _safe_float(row.get("IPS")),
-                "ida": _safe_float(row.get("IDA")),
+                "ida": _safe_float(row.get("IDA_display", row.get("IDA"))),  # original (may be 0)
                 "ipv": _safe_float(row.get("IPV")),
                 "ipp": _safe_float(row.get("IPP")),
                 "inde": _safe_float(row.get("INDE")),

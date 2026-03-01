@@ -1,3 +1,10 @@
+# Production compose — no source code mounts, no hot-reload.
+# Code is baked into the image at build time.
+#
+# Usage:
+#   docker compose -f docker-compose-prod.yml up -d
+#   docker compose -f docker-compose-prod.yml up -d --build   # force rebuild
+
 services:
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.14.3
@@ -19,6 +26,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   api:
     build:
@@ -32,14 +40,10 @@ services:
       - PORT=8080
       - GIT_PYTHON_REFRESH=quiet
     volumes:
-      # Mount project data dir so data_loader.py and prediction_cache.py can find the CSV/tensors
+      # Data and MLflow artifacts only — no source mounts
       - ./data:/data:ro
       - ./backend/data:/app/data
-      # MLflow artifacts must be accessible in the api container (same path as mlflow container)
       - ./mlruns:/mlruns
-      # Mount source for live code changes without rebuild (dev)
-      - ./backend/ml:/app/ml
-      - ./backend/app:/app/app
     depends_on:
       mlflow:
         condition: service_healthy

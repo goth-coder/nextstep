@@ -4,7 +4,7 @@
 
 **Stack**: LSTM (PyTorch) · Flask 3 · React 18 · MLflow 2 · Groq LLM · Docker Compose  
 **Dataset**: PEDE 2022-2024 (FIAP Datathon) · 1 156 alunos ativos · previsão para ciclo 2025  
-**Último modelo**: v7 @prod · AUC=0.80 · F1=0.654 · threshold=0.314 (PR curve)
+**Último modelo**: v37 @prod · AUC=0.827 · F1=0.762 · threshold=0.284 (PR curve) · Optuna 20 trials
 
 ---
 
@@ -44,22 +44,27 @@ cp /caminho/para/"BASE DE DADOS PEDE 2022-2024 - DATATHON.xlsx" backend/data/raw
 ### 4. ETL — processar o dataset
 
 ```bash
-docker compose run --rm --no-deps api python src/data_loader.py
+docker compose run --rm --no-deps api python ml/data_loader.py
 # Gera em backend/data/processed/:
-#   X_train.npy (600, 8)  y_train.npy (600,)
-#   X_test.npy  (690, 8)  y_test.npy  (690,)
-#   X_inference.npy (1156, 8)
+#   X_train.npy  y_train.npy
+#   X_test.npy   y_test.npy
+#   X_inference.npy (alunos 2024, sem target)
 #   scaler.pkl (RobustScaler fitado no treino)
-#   students_meta.pkl (1156 registros)
+#   students_meta.pkl (metadados para a API)
 ```
 
 ### 5. Treinar o modelo
 
 ```bash
-docker compose run --rm api python src/train_lstm.py
-# - Split temporal: 2022→2023 treino | 2023→2024 teste
-# - Validation set (20% do treino) para otimizar threshold via curva PR
-# - Registra nextstep-lstm @staging no MLflow
+# Treino direto (defaults ou --config best_params.json)
+docker compose run --rm api python ml/train.py
+
+# HPO com Optuna — N trials, retreina com o melhor automaticamente
+docker compose run --rm api python ml/tune.py --trials 30
+
+# HPO só busca, sem retreinar
+docker compose run --rm api python ml/tune.py --trials 30 --no-train
+# O melhor modelo é promovido para @staging e @prod automaticamente
 ```
 
 ### 6. Promover o modelo para produção
@@ -103,48 +108,38 @@ docker compose up --build
 ```
 nextstep/
 ├── backend/
-│   ├── app/
-│   │   ├── __init__.py          # Flask factory (create_app)
+│   ├── app/                     # Flask application (SOLID)
+│   │   ├── domain/              # Entidades + ports (interfaces)
+│   │   ├── repositories/        # MLflow model + student data
+│   │   ├── services/            # Prediction, cache, LLM
 │   │   ├── routes.py            # Endpoints REST
-│   │   ├── prediction_cache.py  # Cache em memória (LSTM inference)
-│   │   └── llm_service.py       # Integração Groq (LGPD-safe)
-│   ├── src/
-│   │   ├── data_loader.py       # ETL: PEDE XLSX → tensores (RobustScaler)
-│   │   └── train_lstm.py        # Treinamento LSTM + MLflow + threshold PR
+│   │   └── __init__.py          # Flask factory (create_app)
+│   ├── ml/                      # ML pipeline
+│   │   ├── models/              # LSTMClassifier (PyTorch)
+│   │   ├── training/            # TrainingLoop, Evaluator, Registry, HPO
+│   │   ├── data_loader.py       # ETL: PEDE XLSX → .npy + scaler
+│   │   ├── train.py             # Entrypoint: treino + quality gate + registro
+│   │   └── tune.py              # Entrypoint: HPO Optuna → best params → train
+│   ├── scripts/             # Exploratório / legado (Sprint 1)
 │   ├── tests/
-│   │   ├── test_api.py
-│   │   ├── test_data_loader.py
-│   │   ├── test_llm_service.py
-│   │   └── test_model.py
 │   ├── data/
 │   │   ├── raw/                 # XLSX original (git-ignored)
-│   │   └── processed/           # X_train/test/inference.npy, scaler.pkl (git-ignored)
+│   │   └── processed/           # .npy, scaler.pkl, students_meta.pkl (git-ignored)
 │   ├── Dockerfile
+│   ├── .dockerignore
 │   ├── requirements.txt
 │   └── pyproject.toml
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── RiskBadge.tsx
-│   │   │   ├── StudentListItem.tsx
-│   │   │   ├── IndicatorCard.tsx
-│   │   │   ├── AdvicePanel.tsx
-│   │   │   └── ErrorState.tsx
 │   │   ├── pages/
-│   │   │   ├── Dashboard.tsx
-│   │   │   └── StudentProfile.tsx
 │   │   ├── services/api.ts
 │   │   ├── types/student.ts
 │   │   └── main.tsx
 │   ├── Dockerfile
-│   ├── nginx.conf
 │   └── package.json
-├── k8s/                         # Manifests Kubernetes (GKE)
-├── .github/workflows/
-│   ├── ci.yaml                  # CI: lint + testes
-│   ├── train.yaml               # Treinamento manual
-│   └── deploy.yaml              # Deploy GKE
-├── docker-compose.yml
+├── docker-compose.yml           # Dev (hot-reload via volume mounts)
+├── docker-compose-prod.yml      # Prod (código baked na imagem)
 └── .env.example
 ```
 
@@ -196,16 +191,74 @@ Sugestão pedagógica gerada pelo Groq (sempre HTTP 200).
 
 | Etapa | Detalhe |
 |-------|---------|
-| **Features** | IAA, IEG, IPS, IDA, IPV, INDE, defasagem, fase\_num (INPUT\_SIZE=8) |
+| **Features** | IAA, IEG, IPS, IDA, IPV, INDE, defasagem, fase\_num, gender, age (INPUT\_SIZE=10) |
 | **IPP** | Display-only — ausente em 2022, imputado para exibição, não entra no modelo |
 | **IAN** | Removido — data leakage (correlação 0.84–0.87 com o target) |
 | **Split** | Temporal: 2022→2023 treino / 2023→2024 teste / 2024 inferência |
 | **Missing (treino)** | DROP — linhas com null em qualquer feature são descartadas |
-| **Missing (inferência)** | IMPUTE com medianas do treino (não pode perder alunos matriculados) |
+| **Missing (inferência)** | IMPUTE com medianas do treino — NaN e IEG/IDA=0 são tratados como ausentes (≈9% dos alunos 2024) |
+| **Zeros IEG/IDA** | IEG=0 (9,4 %) e IDA=0 (1,4 %) são prováveis erros de registro — imputados pela mediana da fase no treino para o modelo; valor original 0 é preservado para exibição no frontend com aviso ⚠️ |
 | **Scaler** | `RobustScaler` (mediana+IQR, clip±5) — robusto a outliers |
 | **Threshold** | Otimizado via curva PR no validation set (20% do treino) — nunca no test |
-| **Modelo** | LSTM 1 camada hidden\_size=64, BCEWithLogitsLoss com pos\_weight |
+| **Modelo** | LSTM 2 camadas hidden\_size=128, BCEWithLogitsLoss com pos\_weight · otimizado via Optuna (20 trials) |
 | **Tracking** | MLflow: params, métricas, scaler como artefato, alias @staging/@prod |
+| **HPO** | Optuna: N trials por experimento, cada trial = child MLflow run, melhor retrained e promovido |
+
+### Fluxo de dados
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  OFFLINE  —  data_loader.py                                         │
+│                                                                     │
+│  PEDE .xlsx  →  ETL / limpeza  →  feature eng  →  RobustScaler     │
+│             →  salva como .npy  (formato portátil, sem framework)   │
+│                                                                     │
+│  data/processed/                                                    │
+│    X_train.npy   (n_samples, n_features)                            │
+│    y_train.npy   (n_samples,)                                       │
+│    X_test.npy                                                       │
+│    y_test.npy                                                       │
+│    X_inference.npy   ← alunos 2024, sem target                      │
+│    scaler.pkl                                                       │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  TRAINING TIME  —  ml/train.py  (ou  ml/tune.py  para HPO)        │
+│                                                                     │
+│  1. np.load("X_train.npy")          # ndarray, sem dependência ML   │
+│  2. temporal val split (20%)        # mantém ordem cronológica      │
+│  3. torch.from_numpy(arr)           # converte para tensor PyTorch  │
+│     .unsqueeze(1)                   # → (N, seq_len=1, n_features)  │
+│  4. TrainingLoop  →  LSTM + Adam + BCEWithLogitsLoss(pos_weight)    │
+│  5. Evaluator.find_threshold()      # curva PR no val set           │
+│  6. Evaluator.evaluate()            # AUC + F1 no test set          │
+│  7. quality gate  →  MLflowRegistry.log_run() + promote @prod       │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  INFERENCE TIME  —  app/services/prediction.py                      │
+│                                                                     │
+│  np.load("X_inference.npy")  →  tensor  →  model(@prod)  →  score  │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Comandos de treino
+
+```bash
+# ETL — gera os .npy (necessário uma vez)
+docker compose run --rm api python ml/data_loader.py
+
+# Treino direto com defaults (ou --config best_params.json)
+docker compose run --rm api python ml/train.py
+
+# HPO — N trials Optuna, salva best_params.json e retreina
+docker compose run --rm api python ml/tune.py --trials 30
+
+# HPO só busca, sem retreinar
+docker compose run --rm api python ml/tune.py --trials 30 --no-train
+```
 
 ---
 

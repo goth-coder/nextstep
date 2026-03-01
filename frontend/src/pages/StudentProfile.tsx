@@ -198,13 +198,19 @@ export default function StudentProfile() {
                   (key) => {
                     const val = student.indicators[key as keyof typeof student.indicators]
                     const isAvailable = val !== null && val !== undefined
+                    const ZERO_SUSPICIOUS = new Set(['iaa', 'ieg', 'ips', 'ida', 'ipv', 'ipp', 'inde'])
+                    const isZeroSuspect = isAvailable && (val as number) === 0 && ZERO_SUSPICIOUS.has(key)
+                    const zeroTip = key === 'ieg'
+                      ? 'IEG = 0 afeta ~9% dos alunos — pode indicar ausência de avaliação de engajamento; verifique com o coordenador.'
+                      : 'Valor zero pode indicar dado ausente ou erro de registro — verifique o histórico do aluno.'
                     return (
                       <div
                         key={key}
+                        title={isZeroSuspect ? zeroTip : undefined}
                         style={{
                           padding: '0.875rem 1rem',
                           background: colors.white,
-                          border: `1px solid ${colors.gray200}`,
+                          border: `1px solid ${isZeroSuspect ? '#fbbf24' : colors.gray200}`,
                           borderRadius: radius.md,
                           boxShadow: shadows.sm,
                           display: 'flex',
@@ -232,18 +238,21 @@ export default function StudentProfile() {
                           {INDICATOR_LABELS[key].split(' — ')[1]}
                         </span>
                         {isAvailable ? (
-                          <span
-                            style={{
-                              fontSize: typography.sizes.xl,
-                              fontWeight: 800,
-                              color: colors.brandPrimary,
-                              fontVariantNumeric: 'tabular-nums',
-                            }}
-                          >
-                            {key === 'defasagem'
-                              ? `${(val as number) >= 0 ? '+' : ''}${val}`
-                              : (val as number).toFixed(1)}
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            <span
+                              style={{
+                                fontSize: typography.sizes.xl,
+                                fontWeight: 800,
+                                color: isZeroSuspect ? '#92400e' : colors.brandPrimary,
+                                fontVariantNumeric: 'tabular-nums',
+                              }}
+                            >
+                              {key === 'defasagem'
+                                ? `${(val as number) >= 0 ? '+' : ''}${val}`
+                                : (val as number).toFixed(1)}
+                            </span>
+                            {isZeroSuspect && <span title="Dado suspeito" style={{ fontSize: '0.85rem', cursor: 'help' }}>⚠️</span>}
+                          </div>
                         ) : (
                           <span
                             style={{

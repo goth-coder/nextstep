@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { ModelInfo, PedagogicalAdvice, StudentDetail, StudentSummary } from '../types/student'
+import type { DriftInfo, ModelInfo, PedagogicalAdvice, StudentDetail, StudentSummary } from '../types/student'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080',
@@ -37,5 +37,12 @@ export async function getAdvice(id: number): Promise<PedagogicalAdvice> {
 
 export async function getModelInfo(): Promise<ModelInfo> {
   const response = await api.get<ModelInfo>('/api/model')
+  return response.data
+}
+
+// ── Model drift monitoring ────────────────────────────────────────────────────
+
+export async function getModelDrift(): Promise<DriftInfo> {
+  const response = await api.get<DriftInfo>('/api/model/drift')
   return response.data
 }

@@ -1,0 +1,49 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+
+# ── Dev / IDE ─────────────────────────────────────────────────────────────────
+.git/
+.gitignore
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Secrets / env ─────────────────────────────────────────────────────────────
+.env
+.env.*
+*.env
+*.pem
+*.key
+
+# ── Raw data & large artifacts (mounted as volumes at runtime) ────────────────
+data/raw/
+data/processed/
+# keep data/processed structure but skip large files
+*.npy
+*.pkl
+*.pt
+
+# ── MLflow run artifacts (mounted as volume) ──────────────────────────────────
+mlruns/
+
+# ── Legacy / exploratory scripts ─────────────────────────────────────────────
+scripts/
+
+# ── Tests (not needed in production image) ────────────────────────────────────
+tests/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/

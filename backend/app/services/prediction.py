@@ -66,6 +66,8 @@ class PredictionService:
                 phase=meta.get("phase", "N/A"),
                 phase_num=meta.get("fase_num", 0),
                 class_group=meta.get("class_group", "N/A"),
+                gender=int(meta.get("gender", 0)),
+                age=meta.get("age"),
                 year=meta.get("year", 2024),
                 risk_score=float(score),
                 indicators=indicators,

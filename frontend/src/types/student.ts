@@ -46,6 +46,8 @@ export interface Indicators {
 export interface StudentDetail extends StudentSummary {
   class_group: string
   fase_num: number | null
+  gender: number | null   // 0 = Feminino, 1 = Masculino
+  age: number | null
   indicators: Indicators
 }
 
@@ -54,4 +56,18 @@ export interface PedagogicalAdvice {
   advice: string
   is_fallback: boolean
   generated_at: string | null
+}
+
+export interface DriftInfo {
+  total_students: number
+  score_mean: number
+  score_std: number
+  score_p10: number
+  score_p25: number
+  score_p50: number
+  score_p75: number
+  score_p90: number
+  tier_counts: { high: number; medium: number; low: number }
+  histogram: Array<{ bucket: string; count: number; from: number; to: number }>
+  computed_at: string
 }
