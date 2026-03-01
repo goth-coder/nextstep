@@ -10,12 +10,13 @@
 
 ---
 
-## Início Rápido
+## Sobre a Associação Passos Mágicos
 
-### Pré-requisitos
+> *"Mudando a vida de crianças e jovens por meio da educação."*
 
-| Ferramenta | Versão mínima |
-|---|---|
+A **Associação Passos Mágicos** tem uma trajetória de 32 anos de atuação e trabalha na transformação da vida de crianças e jovens de baixa renda, levando-os a melhores oportunidades de vida. A associação busca instrumentalizar a educação como ferramenta para a mudança das condições de vida de crianças e jovens em vulnerabilidade social.
+
+O **NextStep** foi desenvolvido com base no dataset de pesquisa extensiva do desenvolvimento educacional da associação nos anos de 2022, 2023 e 2024 (PEDE), com o objetivo de ajudar coordenadores pedagógicos a identificar precocemente alunos em risco e agir de forma mais eficaz.
 | Docker + Docker Compose | 24+ |
 
 ### 1. Configurar variáveis de ambiente

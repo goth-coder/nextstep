@@ -90,10 +90,9 @@ export default function IndicatorRadar({ indicators, labels }: IndicatorRadarPro
       style={{ margin: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}
     >
       <svg
-        width={SIZE}
-        height={SIZE}
+        width="100%"
         viewBox={`0 0 ${SIZE} ${SIZE}`}
-        style={{ overflow: 'visible' }}
+        style={{ overflow: 'visible', display: 'block' }}
         role="img"
         aria-label="Indicator radar"
       >

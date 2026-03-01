@@ -168,19 +168,21 @@ def get_model_drift():
         "low": sum(1 for s in scores if s < med_thresh),
     }
 
-    return jsonify({
-        "total_students": n,
-        "score_mean": round(mean, 4),
-        "score_std": round(std, 4),
-        "score_p10": round(percentile(scores_sorted, 10), 4),
-        "score_p25": round(percentile(scores_sorted, 25), 4),
-        "score_p50": round(percentile(scores_sorted, 50), 4),
-        "score_p75": round(percentile(scores_sorted, 75), 4),
-        "score_p90": round(percentile(scores_sorted, 90), 4),
-        "tier_counts": tier_counts,
-        "histogram": histogram,
-        "computed_at": datetime.now(timezone.utc).isoformat(),
-    }), 200
+    return jsonify(
+        {
+            "total_students": n,
+            "score_mean": round(mean, 4),
+            "score_std": round(std, 4),
+            "score_p10": round(percentile(scores_sorted, 10), 4),
+            "score_p25": round(percentile(scores_sorted, 25), 4),
+            "score_p50": round(percentile(scores_sorted, 50), 4),
+            "score_p75": round(percentile(scores_sorted, 75), 4),
+            "score_p90": round(percentile(scores_sorted, 90), 4),
+            "tier_counts": tier_counts,
+            "histogram": histogram,
+            "computed_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ), 200
 
 
 @routes_bp.get("/api/model")

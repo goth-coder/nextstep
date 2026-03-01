@@ -291,16 +291,14 @@ def run_etl() -> None:
             d24_clean[f"{_col}_display"] = d24_clean[_col].copy()  # raw value for UI
             _zero_mask = d24_clean[_col] == 0.0
             if _zero_mask.any():
-                _phase_med = (
-                    train_df.groupby("fase_num")[_col].median().to_dict()
-                    if _col in train_df.columns else {}
-                )
+                _phase_med = train_df.groupby("fase_num")[_col].median().to_dict() if _col in train_df.columns else {}
                 _global_med = float(train_df[_col].median()) if _col in train_df.columns else 7.0
                 _imputed = d24_clean.loc[_zero_mask, "fase_num"].map(_phase_med).fillna(_global_med)
                 d24_clean.loc[_zero_mask, _col] = _imputed
                 log.info(
                     "Zero-imputation %s: %d students → phase/train medians (display preserves 0.0)",
-                    _col, int(_zero_mask.sum()),
+                    _col,
+                    int(_zero_mask.sum()),
                 )
 
     # IPP for display only — impute with 2023 phase medians

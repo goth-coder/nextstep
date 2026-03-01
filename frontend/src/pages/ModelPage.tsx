@@ -223,7 +223,10 @@ export default function ModelPage() {
 
           {/* ── Drift monitoring ───────────────────────────────────── */}
           {drift ? (
-            <Section title="Distribuição de Scores — Monitoramento de Drift">
+            <Section
+              title="Distribuição de Scores — Monitoramento de Drift"
+              info="O modelo foi treinado com dados de 2022–2023. Se em ciclos futuros a distribuição dos scores mudar significativamente — por exemplo, muito mais alunos migrando para alto risco sem mudança pedagógica real — isso pode indicar que os dados saíram da distribuição de treino. Sinal de alerta: distribuição concentrando-se nos extremos (0–0.1 ou 0.8–1.0), ou mediana subindo/descendo mais de 0.1 em relação ao ciclo anterior."
+            >
               <DriftPanel drift={drift} />
             </Section>
           ) : (
@@ -327,7 +330,8 @@ function Card({ children }: { children: React.ReactNode }) {
   )
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, info, children }: { title: string; info?: string; children: React.ReactNode }) {
+  const [showInfo, setShowInfo] = useState(false)
   return (
     <div style={{
       background: colors.white, border: `1px solid ${colors.gray200}`,
@@ -337,8 +341,35 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         fontSize: typography.sizes.xs, fontWeight: 700,
         color: colors.gray500, textTransform: 'uppercase',
         letterSpacing: '0.07em', margin: '0 0 1rem 0',
+        display: 'flex', alignItems: 'center', gap: '0.35rem',
       }}>
         {title}
+        {info && (
+          <span
+            style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}
+            onMouseEnter={() => setShowInfo(true)}
+            onMouseLeave={() => setShowInfo(false)}
+          >
+            <span style={{
+              cursor: 'help', color: colors.brandAccent, fontSize: '1.1em',
+              lineHeight: 1, userSelect: 'none',
+            }}>?</span>
+            {showInfo && (
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, zIndex: 200,
+                marginTop: '0.4rem',
+                background: '#1e293b', color: 'white',
+                borderRadius: '0.5rem', padding: '0.75rem 1rem',
+                fontSize: '0.72rem', fontWeight: 400, lineHeight: 1.6,
+                width: '320px', boxShadow: shadows.md,
+                textTransform: 'none', letterSpacing: 'normal',
+                pointerEvents: 'none',
+              }}>
+                {info}
+              </div>
+            )}
+          </span>
+        )}
       </h2>
       {children}
     </div>
@@ -389,19 +420,6 @@ function DriftPanel({ drift }: { drift: DriftInfo }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-      {/* What is drift monitoring — context box */}
-      <div style={{
-        background: '#f0f6ff', border: '1px solid #bfdbfe', borderRadius: radius.md,
-        padding: '0.75rem 1rem', fontSize: typography.sizes.sm, color: colors.gray700, lineHeight: 1.6,
-      }}>
-        <strong style={{ color: colors.brandPrimary }}>O que é monitoramento de drift?</strong>
-        {' '}O modelo foi treinado com dados de 2022–2023. Se em ciclos futuros a distribuição dos scores mudar
-        significativamente — por exemplo, muito mais alunos migrando para "alto risco" sem mudança pedagógica real —
-        isso pode indicar que os dados do novo ciclo saíram da distribuição de treino.{' '}
-        <strong>Sinal de alerta:</strong> distribuição se concentrando nos extremos (0–0.1 ou 0.8–1.0), ou mediana
-        subindo/descendo mais de 0.1 em relação ao ciclo anterior. Nesse caso, vale retreinar o modelo.
-      </div>
-
       {/* Tier pills */}
       <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
         {[
@@ -427,13 +445,12 @@ function DriftPanel({ drift }: { drift: DriftInfo }) {
       </div>
 
       {/* Bar chart with React hover tooltip */}
-      <div style={{ overflowX: 'auto' }}>
-        <div style={{ position: 'relative', display: 'inline-block' }}>
-          <svg
-            width={CHART_W} height={CHART_H + 28}
-            style={{ display: 'block' }}
-            onMouseLeave={() => setTooltip(null)}
-          >
+      <div style={{ width: '100%' }}>
+        <svg
+          viewBox={`0 0 ${CHART_W} ${CHART_H + 28}`}
+          style={{ display: 'block', width: '100%', height: 'auto' }}
+          onMouseLeave={() => setTooltip(null)}
+        >
             {/* Baseline */}
             <line x1={0} y1={CHART_H} x2={CHART_W} y2={CHART_H} stroke={colors.gray200} strokeWidth="1" />
 
@@ -518,29 +535,33 @@ function DriftPanel({ drift }: { drift: DriftInfo }) {
                 </g>
               )
             })()}
-          </svg>
-        </div>
+        </svg>
         <p style={{ fontSize: typography.sizes.xs, color: colors.gray500, margin: '0.25rem 0 0' }}>
           Distribuição dos scores de risco preditos para os {total_students} alunos do ciclo 2024 (intervalos de 0.1). Passe o mouse nas barras para detalhes.
         </p>
       </div>
 
-      {/* Stats row */}
+      {/* Stats row — single line */}
       <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-        gap: '0.5rem', paddingTop: '0.5rem', borderTop: `1px solid ${colors.gray100}`,
+        display: 'flex', flexWrap: 'nowrap', gap: '0',
+        paddingTop: '0.5rem', borderTop: `1px solid ${colors.gray100}`,
+        overflowX: 'auto',
       }}>
         {[
           { label: 'Média', value: drift.score_mean.toFixed(3) },
-          { label: 'Mediana (P50)', value: drift.score_p50.toFixed(3) },
-          { label: 'Desvio Padrão', value: drift.score_std.toFixed(3) },
+          { label: 'Mediana', value: drift.score_p50.toFixed(3) },
+          { label: 'Desvio P.', value: drift.score_std.toFixed(3) },
           { label: 'P10', value: drift.score_p10.toFixed(3) },
           { label: 'P25', value: drift.score_p25.toFixed(3) },
           { label: 'P75', value: drift.score_p75.toFixed(3) },
           { label: 'P90', value: drift.score_p90.toFixed(3) },
-        ].map(({ label, value }) => (
-          <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
-            <span style={{ fontSize: typography.sizes.xs, color: colors.gray500, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+        ].map(({ label, value }, i, arr) => (
+          <div key={label} style={{
+            flex: 1, display: 'flex', flexDirection: 'column', gap: '0.1rem',
+            padding: '0 0.75rem',
+            borderRight: i < arr.length - 1 ? `1px solid ${colors.gray200}` : 'none',
+          }}>
+            <span style={{ fontSize: '0.65rem', color: colors.gray500, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>
               {label}
             </span>
             <span style={{ fontSize: typography.sizes.sm, fontWeight: 700, color: colors.brandPrimary, fontVariantNumeric: 'tabular-nums', fontFamily: 'monospace' }}>

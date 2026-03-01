@@ -26,31 +26,36 @@ FALLBACK_TEXT = (
 )
 
 # ── Model config ──────────────────────────────────────────────────────────────
-MODEL       = "llama-3.3-70b-versatile"   # Groq free tier — much better than 8b
-MAX_TOKENS  = 500                          # enough for 4 well-formed bullet points
-TEMPERATURE = 0.5                          # grounded but not robotic
-TIMEOUT     = 10.0                         # 70b is still fast on Groq (~1-2s)
-MAX_RETRIES = 1                            # 1 retry before fallback
-RETRY_DELAY = 1.0                          # seconds between retries
+MODEL = "llama-3.3-70b-versatile"  # Groq free tier — much better than 8b
+MAX_TOKENS = 500  # enough for 4 well-formed bullet points
+TEMPERATURE = 0.5  # grounded but not robotic
+TIMEOUT = 10.0  # 70b is still fast on Groq (~1-2s)
+MAX_RETRIES = 1  # 1 retry before fallback
+RETRY_DELAY = 1.0  # seconds between retries
 
 # ── Cache ─────────────────────────────────────────────────────────────────────
 _CACHE_TTL_SECONDS = 3600  # 1 hour
 
 _INDICATOR_LABELS: dict[str, str] = {
-    "iaa":       "Desempenho Acadêmico (IAA)",
-    "ieg":       "Engajamento (IEG)",
-    "ips":       "Índice Psicossocial (IPS)",
-    "ida":       "Autossuficiência (IDA)",
-    "ipv":       "Visão de Vida (IPV)",
-    "ipp":       "Índice Psicopedagógico (IPP)",
-    "inde":      "Desenvolvimento Educacional (INDE)",
+    "iaa": "Desempenho Acadêmico (IAA)",
+    "ieg": "Engajamento (IEG)",
+    "ips": "Índice Psicossocial (IPS)",
+    "ida": "Autossuficiência (IDA)",
+    "ipv": "Visão de Vida (IPV)",
+    "ipp": "Índice Psicopedagógico (IPP)",
+    "inde": "Desenvolvimento Educacional (INDE)",
     "defasagem": "Defasagem Escolar (anos atrás)",
 }
 
 # Thresholds considered "low" per indicator (below = weak signal)
 _WEAK_THRESHOLD: dict[str, float] = {
-    "iaa": 5.5, "ieg": 5.5, "ips": 5.5,
-    "ida": 5.5, "ipv": 5.5, "ipp": 5.5, "inde": 5.5,
+    "iaa": 5.5,
+    "ieg": 5.5,
+    "ips": 5.5,
+    "ida": 5.5,
+    "ipv": 5.5,
+    "ipp": 5.5,
+    "inde": 5.5,
 }
 
 _SYSTEM_PROMPT = """\
@@ -76,9 +81,10 @@ class LLMService:
     def __init__(self, api_key: str | None = None, model: str = MODEL) -> None:
         self._api_key = api_key or os.getenv("GROQ_API_KEY")
         self._model = model
-        self._cache: dict[str, tuple[str, float]] = {}   # key → (text, expires_at)
+        self._cache: dict[str, tuple[str, float]] = {}  # key → (text, expires_at)
         try:
             import groq as groq_sdk
+
             self._groq = groq_sdk
         except ImportError:
             self._groq = None  # type: ignore[assignment]
@@ -133,7 +139,7 @@ class LLMService:
             model=self._model,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user",   "content": user_prompt},
+                {"role": "user", "content": user_prompt},
             ],
             max_tokens=MAX_TOKENS,
             temperature=TEMPERATURE,
@@ -149,16 +155,12 @@ class LLMService:
         risk_score: float,
     ) -> str:
         """LGPD-safe prompt with enriched context."""
-        risk_pct   = f"{risk_score * 100:.1f}%"
-        risk_label = (
-            "ALTO" if risk_score >= 0.65
-            else "MÉDIO" if risk_score >= 0.35
-            else "BAIXO"
-        )
+        risk_pct = f"{risk_score * 100:.1f}%"
+        risk_label = "ALTO" if risk_score >= 0.65 else "MÉDIO" if risk_score >= 0.35 else "BAIXO"
 
         # Build indicator lines + identify weakest (sorted worst-first)
         lines: list[str] = []
-        weak: list[tuple[float, str]] = []   # (sort_value, label) — lower = worse
+        weak: list[tuple[float, str]] = []  # (sort_value, label) — lower = worse
         for key, label in _INDICATOR_LABELS.items():
             val = indicators.get(key)
             if val is None:
@@ -175,7 +177,9 @@ class LLMService:
                 # was zero — very likely a data-entry error or student with no
                 # evaluation history, NOT a genuine score of zero.
                 if key in ("ieg", "ida") and fv == 0.0:
-                    formatted += " ⚠️ (provável erro de registro ou aluno sem histórico — não interpretar como desempenho nulo)"
+                    formatted += (
+                        " ⚠️ (provável erro de registro ou aluno sem histórico — não interpretar como desempenho nulo)"
+                    )
                 if key in _WEAK_THRESHOLD and fv < _WEAK_THRESHOLD[key]:
                     weak.append((fv, label))
             lines.append(f"  • {label}: {formatted}")
@@ -186,7 +190,8 @@ class LLMService:
         indicators_block = "\n".join(lines)
         weak_block = (
             f"\nIndicadores mais preocupantes (priorizar nesta ordem): {', '.join(weak_sorted[:4])}."
-            if weak_sorted else ""
+            if weak_sorted
+            else ""
         )
 
         # Urgency notice for students already behind
