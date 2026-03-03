@@ -9,13 +9,8 @@ metadata:
     # NGINX rate limiting
     nginx.ingress.kubernetes.io/limit-rps: "20"
     nginx.ingress.kubernetes.io/limit-connections: "10"
-    # Security headers
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_set_headers "X-Content-Type-Options: nosniff";
-      more_set_headers "X-Frame-Options: DENY";
-      more_set_headers "X-XSS-Protection: 1; mode=block";
-      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
-      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+    # Security headers are set in the nginx ConfigMap (nextstep-nginx-config).
+    # configuration-snippet is disabled by default in NGINX Ingress >= 1.9 (CVE-2021-25742).
     # Proxy timeouts for LLM advice endpoint (can be slow)
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "60"

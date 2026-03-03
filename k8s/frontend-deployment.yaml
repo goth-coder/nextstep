@@ -15,12 +15,12 @@ spec:
       labels:
         app: nextstep-web
     spec:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 101   # nginx default non-root user
+      # NOTE: nginx:alpine master process requires root to set up cache dirs
+      # (workers run as UID 101 internally). To fully eliminate root,
+      # switch Dockerfile to nginxinc/nginx-unprivileged in a future PR.
       containers:
         - name: web
-          image: gcr.io/nextstep-fiap-project/nextstep-web:IMAGE_TAG_PLACEHOLDER
+          image: us-central1-docker.pkg.dev/nextstep-fiap-project/nextstep/nextstep-web:IMAGE_TAG_PLACEHOLDER
           ports:
             - containerPort: 80
           securityContext:
@@ -28,7 +28,7 @@ spec:
             readOnlyRootFilesystem: false  # nginx writes cache/pid files
             capabilities:
               drop: ["ALL"]
-              add: ["NET_BIND_SERVICE"]
+              add: ["NET_BIND_SERVICE", "CHOWN", "SETUID", "SETGID"]  # nginx entrypoint needs chown + setuid for worker processes
           resources:
             requests:
               memory: "64Mi"
@@ -36,3 +36,61 @@ spec:
             limits:
               memory: "128Mi"
               cpu: "100m"
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+              readOnly: true
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: nextstep-nginx-config
+---
+# Nginx config with k8s service name for the API upstream
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nextstep-nginx-config
+  namespace: nextstep
+data:
+  default.conf: |
+    server {
+        listen 80;
+        server_name _;
+
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # Security headers
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+
+        # SPA fallback: serve index.html for all unknown paths
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        # Proxy /api/ and /health to the backend service
+        location ~ ^/(api|health) {
+            proxy_pass http://nextstep-api-service:8080;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_read_timeout 60s;
+        }
+
+        # Cache static assets
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+
+        # Block common attack paths
+        location ~* \.(env|git|htaccess|htpasswd|ini|log|sh|sql|conf)$ {
+            deny all;
+            return 404;
+        }
+    }

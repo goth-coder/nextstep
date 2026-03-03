@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nextstep-train
+  namespace: nextstep
+  labels:
+    app: nextstep-train
+spec:
+  ttlSecondsAfterFinished: 3600   # auto-clean job after 1h
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app: nextstep-train
+    spec:
+      restartPolicy: Never
+      # Training job: no strict security context needed (ephemeral batch pod)
+      containers:
+        - name: train
+          image: us-central1-docker.pkg.dev/nextstep-fiap-project/nextstep/nextstep-api:IMAGE_TAG_PLACEHOLDER
+          command: ["sh", "-c", "mkdir -p /app/data/processed && python ml/data_loader.py && python ml/train.py"]
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: "http://nextstep-mlflow-service:5000"
+            - name: GIT_PYTHON_REFRESH
+              value: "quiet"
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nextstep-secrets
+                  key: groq-api-key
+          resources:
+            requests:
+              memory: "1.5Gi"
+              cpu: "500m"
+            limits:
+              memory: "3Gi"
+              cpu: "2000m"
+          # No PVC mount needed: training uploads artifacts via MLflow HTTP API
+          # (MLflow server has --serve-artifacts and writes to its own PVC)

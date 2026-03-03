@@ -1,0 +1,22 @@
+# ── Runtime dependencies only ─────────────────────────────────────────────────
+# NOTE: torch is installed separately in Dockerfile using the CPU-only wheel
+#       to avoid pulling ~7GB of CUDA libraries not needed at inference time.
+
+# Web framework
+flask==3.0.3
+gunicorn==22.0.0
+flask-cors==4.0.1
+flask-limiter==3.8.0
+
+# ML inference (torch installed via Dockerfile with --index-url cpu)
+scikit-learn==1.5.1
+numpy==1.26.4
+pandas==2.2.2
+openpyxl==3.1.5          # reads .xlsx data file at startup
+optuna==3.6.1
+
+# MLflow (model registry + artifact download)
+mlflow==2.14.3
+
+# LLM
+groq>=0.11.0

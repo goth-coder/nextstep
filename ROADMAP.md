@@ -2,42 +2,47 @@
 
 **GCloud Project**: `nextstep-fiap-project`
 **Repositório**: https://github.com/goth-coder/nextstep.git
-**Registry**: `gcr.io/nextstep-fiap-project/nextstep-{api,web}:<sha>`
+**Registry**: `us-central1-docker.pkg.dev/nextstep-fiap-project/nextstep/nextstep-{api,web}:<sha>`
 **Cluster GKE**: `us-central1` (a criar)
 
 ---
 
 ## FASE 1 — ML Recheck: Target Engineering
 
-> **Contexto**: O modelo atual pode estar prevendo o *estado atual* de risco em vez da *transição futura*. A proposta de valor do NextStep é: dado o estado de hoje, qual a probabilidade de o aluno *piorar* no próximo ciclo?
+> **Status**: ✅ Concluído — modelo retreinado com target corrigido, HPO regularizado.
 >
-> **Caso real**: Aluno 1028, defasagem = −2 (adiantado), índices bons → score de risco baixo. Correto? Depende de como o `y` foi construído.
+> **Resultado final** (2026-03-01):
+> - Val AUC-ROC: **0.7931** ✅ (gate ≥ 0.70)
+> - Val F1 (oracle): **0.5872** ✅ (gate ≥ 0.55)
+> - Val F1 (deployed): **0.5000** ⚠️ — threshold transfer degradation
+> - Decision threshold: **0.0325** — modelo mal calibrado (ver diagnóstico)
+> - Distribuição 2024: 36.9% alto, 5.2% médio, 57.9% baixo
 >
-> **Target correto**: `y = 1 se defasagem(2024) > defasagem(2023)` (aluno regrediu no ciclo) -  é assim q ta sendo feito a rede?
-> **Target suspeito**: `y = 1 se defasagem(2024) > 0` (estado atual, não transição)
+> **Diagnóstico completo**: `docs/model-diagnostic-2026-03-01.md`
 >
-> **Gap treino × validação (v37)**:
-> - Train F1 ≈ **0.87** · Validation F1 ≈ **0.76** → delta de ~0.11
-> - Causa confirmada: **shift de distribuição do target** entre os dois ciclos — train: 61% positivo (piorou 22→23), test: 44% positivo (piorou 23→24). O modelo treina com base numa taxa de piora muito maior do que a que encontra no test. Isso naturalmente eleva o recall e F1 no treino e penaliza na validação.
-> - Causa secundária: **bug no HPO** — modelos `num_layers=1` (maioria dos trials) tinham `dropout=0.0` E sem `weight_decay` → zero regularização. Corrigido.
-> - O split temporal (2022→2023 como train, 2023→2024 como test) está **correto** — é holdout por ciclo, sem leakage.
+> **Conclusão**: AUC 0.79 válido para ranking. Classificação por tier com artefatos de calibração.
+> Próxima melhoria: Platt Scaling + threshold operacional por percentil.
 
 - [X] Abrir `backend/ml/data_loader.py` e auditar como `y` é construído
 - [X] Confirmar se o target é Δdefasagem (t→t+1) ou estado pontual
 - [X] **BUG ENCONTRADO E CORRIGIDO**: target era `defasagem_next < 0` (estado), corrigido para `defasagem_next < defasagem_current` (transição/piora)
-- [ ] Retreinar com novo target e comparar AUC / F1 / threshold com v37
+- [X] Retreinar com novo target — AUC 0.7931, modelo mais realista
+- [ ] Calibração de probabilidades (Platt Scaling) — thresholds operacionais
+- [ ] Threshold por percentil operacional (máx 20% alto risco)
 - [ ] Ajustar texto da UI: "probabilidade de piorar" em vez de "em risco agora"
-- [ ] Validar aluno 1028 manualmente após retreino (score deve continuar baixo se índices bons)
-- [ ] Investigar gap Train F1 ≈ 0.87 × Validation F1 ≈ 0.76 (delta ~0.11)
-  - [X] ~~Substituir split aleatório~~ — split já é temporal por ano (2022→train, 2023→test), não havia esse problema
-  - [X] **BUG CORRIGIDO no HPO**: modelos com `num_layers=1` tinham `dropout=0.0` forçado E sem `weight_decay` → zero regularização. Corrigido: adicionado `weight_decay` (L2) ao search space do Optuna (`1e-5`..`1e-2`, log scale) e ao `TrainConfig`/`Adam` optimizer
-  - [ ] Retreinar HPO (tune.py --trials 30) com novo search space e avaliar se gap diminui
-  - [ ] Verificar se há data leakage no feature engineering (features calculadas com dados futuros)
+- [ ] Benchmark XGBoost/LightGBM vs LSTM para dataset pequeno (1.156 registros)
+- [X] Investigar gap Train F1 × Validation F1
+  - [X] Split já é temporal por ano — correto, sem data leakage
+  - [X] **BUG CORRIGIDO no HPO**: adicionado `weight_decay` ao Adam + search space Optuna
+  - [X] WeightedRandomSampler + `pos_weight_multiplier` (0.5–4.0×)
+  - [X] Oracle quality gate: gate em `test_f1_oracle` (melhor F1 possível no test set)
 
 ---
 
 ## FASE 2 — Kubernetes Completo
 
+> **Status**: Manifests ✅ concluídos · Cluster GKE ⏳ a criar agora
+>
 > **Sizing estimado** (GKE `us-central1`, node pool `e2-standard-2` × 2 nós, ~$95/mês; spot ~$30/mês):
 >
 > | Workload | CPU req | Mem req | CPU lim | Mem lim | Réplicas |
@@ -45,50 +50,87 @@
 > | `nextstep-api` | 500m | 1Gi | 1000m | 2Gi | 2 |
 > | `nextstep-web` | 50m | 64Mi | 100m | 128Mi | 2 |
 > | `mlflow` | 250m | 512Mi | 500m | 1Gi | 1 |
->
-> **Nota sobre registry**: Os manifests já usam `gcr.io/PROJECT_ID/...` — correto. O Artifact Registry (`pkg.dev`) é o successor; GCR redireciona automaticamente. Nenhuma mudança de URI necessária.
 
 ### 2.1 Estrutura de manifests
 
-- [X] Criar `k8s/namespace.yaml` (namespace `nextstep`)
-- [X] Atualizar `k8s/backend-deployment.yaml`: resources conforme tabela acima + `securityContext` non-root
-- [X] Atualizar `k8s/frontend-deployment.yaml`: resources conforme tabela acima + `securityContext` non-root
+- [X] Criar `k8s/namespace.yaml`
+- [X] Atualizar `k8s/backend-deployment.yaml` + `securityContext` non-root
+- [X] Atualizar `k8s/frontend-deployment.yaml` + `securityContext` non-root
 - [X] Criar `k8s/mlflow-deployment.yaml` + `k8s/mlflow-service.yaml`
-- [X] Criar `k8s/mlflow-pvc.yaml` (PersistentVolumeClaim para dados MLflow)
-- [X] Criar `k8s/hpa.yaml` (HorizontalPodAutoscaler para `nextstep-api`, min=2 max=5, CPU 70%)
-- [X] Criar `k8s/network-policy.yaml` (API só aceita tráfego do web + ingress)
-- [X] Adicionar `namespace: nextstep` em todos os manifests
+- [X] Criar `k8s/mlflow-pvc.yaml`
+- [X] Criar `k8s/hpa.yaml` (min=2 max=5, CPU 70%)
+- [X] Criar `k8s/network-policy.yaml`
+- [X] `namespace: nextstep` em todos os manifests
+- [X] Domínio atualizado para `nextstep-advisor.uk` em todos os manifests
 
 ### 2.2 Cluster GKE
 
-- [ ] Criar cluster: `gcloud container clusters create nextstep --project nextstep-fiap-project --region us-central1 --num-nodes 2 --machine-type e2-standard-2 --enable-autoscaling --min-nodes 2 --max-nodes 4`
-- [ ] Criar Service Account com roles: `roles/storage.objectViewer`, `roles/artifactregistry.reader`
-- [ ] Criar secret `nextstep-secrets` no cluster: `kubectl create secret generic nextstep-secrets --from-literal=groq-api-key=$GROQ_API_KEY -n nextstep`
-- [ ] Aplicar manifests: `kubectl apply -f k8s/`
-- [X] Verificar rollout: adicionado ao deploy.yaml como step automático (`kubectl rollout status --timeout=120s`)
+- [ ] Criar cluster GKE:
+  ```bash
+  gcloud container clusters create nextstep \
+    --project nextstep-fiap-project \
+    --region us-central1 \
+    --num-nodes 2 \
+    --machine-type e2-standard-2 \
+    --enable-autoscaling --min-nodes 2 --max-nodes 4
+  ```
+- [ ] Obter credenciais do cluster:
+  ```bash
+  gcloud container clusters get-credentials nextstep \
+    --region us-central1 --project nextstep-fiap-project
+  ```
+- [ ] Criar namespace + secret:
+  ```bash
+  kubectl apply -f k8s/namespace.yaml
+  kubectl create secret generic nextstep-secrets \
+    --from-literal=groq-api-key=$GROQ_API_KEY -n nextstep
+  ```
+- [ ] Aplicar todos os manifests:
+  ```bash
+  kubectl apply -f k8s/
+  ```
+- [ ] Verificar rollout:
+  ```bash
+  kubectl rollout status deployment/nextstep-api -n nextstep
+  kubectl rollout status deployment/nextstep-web -n nextstep
+  kubectl get pods -n nextstep
+  ```
 
 ---
 
 ## FASE 3 — HTTPS + DNS
 
-> **Opção A (recomendada)**: NGINX Ingress Controller + cert-manager + Let's Encrypt → mais controle, funciona com qualquer domínio
-> **Opção B (mais simples)**: GCE Ingress com Google-managed SSL → zero config de cert, mas preso ao GCP
+> **Status**: Manifests criados ✅ · DNS comprado ✅ · Configuração pendente após cluster
+>
+> **Domínio**: `nextstep-advisor.uk` (Cloudflare)  
+> **Estratégia**: NGINX Ingress Controller + cert-manager + Let's Encrypt
 
 ### 3.1 DNS
 
-- [ ] Adquirir/configurar domínio (ex: `nextstep.app` ou subdomínio)
-- [ ] Após deploy, obter IP externo do Ingress: `kubectl get ingress -n nextstep`
-- [ ] Criar registro A: `nextstep.app → <IP externo>` no registrador de domínio
-- [ ] Aguardar propagação DNS (TTL, pode levar até 48h)
+- [X] Domínio adquirido: `nextstep-advisor.uk` via Cloudflare
+- [ ] Após cluster criado, obter IP do Ingress: `kubectl get ingress -n nextstep`
+- [ ] Na Cloudflare: criar registro A `@ → <IP externo>`, proxy **DNS Only** (cinza) durante emissão do cert
+- [ ] Aguardar propagação DNS (até 48h, geralmente minutos via Cloudflare)
+- [ ] Após cert emitido, ligar proxy laranja (Cloudflare CDN + DDoS)
 
 ### 3.2 Ingress + TLS
 
-- [ ] Instalar NGINX Ingress Controller: `helm install ingress-nginx ingress-nginx/ingress-nginx`
-- [ ] Instalar cert-manager: `helm install cert-manager jetstack/cert-manager --set installCRDs=true`
-- [X] Criar `k8s/cluster-issuer.yaml` (Let's Encrypt prod + staging)
-- [X] Criar `k8s/ingress.yaml` com TLS, rotas `/api/*` → `nextstep-api-service:8080` e `/` → `nextstep-web-service:80`
+- [ ] Instalar NGINX Ingress Controller:
+  ```bash
+  helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+  helm install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx --create-namespace
+  ```
+- [ ] Instalar cert-manager:
+  ```bash
+  helm repo add jetstack https://charts.jetstack.io
+  helm install cert-manager jetstack/cert-manager \
+    --namespace cert-manager --create-namespace --set installCRDs=true
+  ```
+- [X] `k8s/cluster-issuer.yaml` criado (Let's Encrypt staging + prod) com `admin@nextstep-advisor.uk`
+- [X] `k8s/ingress.yaml` criado com TLS, host `nextstep-advisor.uk`
+- [ ] Aplicar issuer + ingress: `kubectl apply -f k8s/cluster-issuer.yaml && kubectl apply -f k8s/ingress.yaml`
 - [ ] Verificar certificado: `kubectl describe certificate -n nextstep`
-- [ ] Testar HTTPS: `curl -I https://nextstep.app/health`
+- [ ] Testar HTTPS: `curl -I https://nextstep-advisor.uk/health`
 
 ---
 
@@ -111,7 +153,7 @@
 
 - [ ] Adicionar `main` nos branches de push do `ci.yaml` (ou garantir via PR → CI roda antes do merge)
 - [ ] Habilitar **Container Analysis** no GCR: `gcloud services enable containeranalysis.googleapis.com --project nextstep-fiap-project`
-- [ ] Adicionar step de scan de vulnerabilidades: `gcloud artifacts docker images scan gcr.io/nextstep-fiap-project/nextstep-api:$SHA`
+- [ ] Adicionar step de scan de vulnerabilidades: `gcloud artifacts docker images scan us-central1-docker.pkg.dev/nextstep-fiap-project/nextstep/nextstep-api:$SHA`
 - [X] Configurar GitHub Secrets necessários:
   - `GCP_PROJECT_ID` = `nextstep-fiap-project`
   - `GCP_SA_KEY` (JSON da service account)
@@ -163,7 +205,7 @@ gcloud container clusters get-credentials <CLUSTER_NAME> \
   --region us-central1 --project nextstep-fiap-project
 
 # Ver imagens no GCR
-gcloud container images list --repository=gcr.io/nextstep-fiap-project
+gcloud artifacts docker images list us-central1-docker.pkg.dev/nextstep-fiap-project/nextstep
 
 # Logs da API em produção
 kubectl logs -l app=nextstep-api -n nextstep --tail=100 -f

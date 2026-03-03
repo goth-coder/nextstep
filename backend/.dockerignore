@@ -28,9 +28,8 @@ Thumbs.db
 *.key
 
 # ── Raw data & large artifacts (mounted as volumes at runtime) ────────────────
-data/raw/
+# data/raw/ intentionally included — xlsx is <1MB and needed for training job
 data/processed/
-# keep data/processed structure but skip large files
 *.npy
 *.pkl
 *.pt

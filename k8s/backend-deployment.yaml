@@ -19,9 +19,30 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
+      # Run ETL before the API starts so students_meta.pkl and tensors exist
+      initContainers:
+        - name: etl
+          image: us-central1-docker.pkg.dev/nextstep-fiap-project/nextstep/nextstep-api:IMAGE_TAG_PLACEHOLDER
+          command: ["sh", "-c", "mkdir -p /app/data/processed && python ml/data_loader.py"]
+          env:
+            - name: MLFLOW_TRACKING_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: nextstep-config
+                  key: mlflow-tracking-uri
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          volumeMounts:
+            - name: processed-data
+              mountPath: /app/data/processed
       containers:
         - name: api
-          image: gcr.io/nextstep-fiap-project/nextstep-api:IMAGE_TAG_PLACEHOLDER
+          image: us-central1-docker.pkg.dev/nextstep-fiap-project/nextstep/nextstep-api:IMAGE_TAG_PLACEHOLDER
           ports:
             - containerPort: 8080
           securityContext:
@@ -49,11 +70,11 @@ spec:
                   key: allowed-origin
           resources:
             requests:
-              memory: "1Gi"
-              cpu: "500m"
+              memory: "512Mi"   # steady-state after startup inference ~400 MB
+              cpu: "250m"       # inference runs once at startup; idle after
             limits:
-              memory: "2Gi"
-              cpu: "1000m"
+              memory: "1.5Gi"   # startup LSTM batch inference peak ~800 MB
+              cpu: "1000m"      # burst during startup + concurrent requests
           livenessProbe:
             httpGet:
               path: /health
@@ -66,6 +87,12 @@ spec:
               port: 8080
             initialDelaySeconds: 15
             periodSeconds: 10
+          volumeMounts:
+            - name: processed-data
+              mountPath: /app/data/processed
+      volumes:
+        - name: processed-data
+          emptyDir: {}   # shared between init container (etl) and api container
 ---
 apiVersion: v1
 kind: ConfigMap

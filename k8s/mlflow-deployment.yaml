@@ -27,13 +27,15 @@ spec:
             - server
             - --host=0.0.0.0
             - --port=5000
-            - --backend-store-uri=sqlite:////mlflow/mlflow.db
-            - --default-artifact-root=/mlflow/artifacts
+            - --backend-store-uri=sqlite:////mlruns/mlflow.db
+            - --serve-artifacts
+            - --artifacts-destination=/mlruns/artifacts   # physical storage (PVC)
+            - --default-artifact-root=mlflow-artifacts:/  # clients download via HTTP proxy
           ports:
             - containerPort: 5000
           volumeMounts:
             - name: mlflow-data
-              mountPath: /mlflow
+              mountPath: /mlruns         # matches local artifact paths baked into mlflow.db
           resources:
             requests:
               memory: "512Mi"

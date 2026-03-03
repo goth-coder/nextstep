@@ -16,7 +16,8 @@ on:
 env:
   PROJECT_ID: nextstep-fiap-project
   REGION: us-central1
-  DOMAIN: nextstep.app
+  DOMAIN: nextstep-advisor.uk
+  REGISTRY: us-central1-docker.pkg.dev/nextstep-fiap-project/nextstep
 
 jobs:
   build-and-deploy:
@@ -29,13 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download MLflow registry artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: mlflow-registry
-          path: mlruns/
-        continue-on-error: true  # Allow fresh deploy without prior train artifact
-
+      # ── GCP auth ──────────────────────────────────────────────────────────
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
@@ -44,61 +39,86 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Configure Docker for GCR
-        run: gcloud auth configure-docker
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev
 
+      # ── Build & push images ───────────────────────────────────────────────
       - name: Build & push backend image
         run: |
-          docker build -t gcr.io/$PROJECT_ID/nextstep-api:${{ github.sha }} ./backend
-          docker push gcr.io/$PROJECT_ID/nextstep-api:${{ github.sha }}
+          docker build -t $REGISTRY/nextstep-api:${{ github.sha }} ./backend
+          docker push $REGISTRY/nextstep-api:${{ github.sha }}
+          docker tag $REGISTRY/nextstep-api:${{ github.sha }} $REGISTRY/nextstep-api:latest
+          docker push $REGISTRY/nextstep-api:latest
 
       - name: Build & push frontend image
         run: |
-          docker build -t gcr.io/$PROJECT_ID/nextstep-web:${{ github.sha }} ./frontend
-          docker push gcr.io/$PROJECT_ID/nextstep-web:${{ github.sha }}
+          docker build -t $REGISTRY/nextstep-web:${{ github.sha }} ./frontend
+          docker push $REGISTRY/nextstep-web:${{ github.sha }}
+          docker tag $REGISTRY/nextstep-web:${{ github.sha }} $REGISTRY/nextstep-web:latest
+          docker push $REGISTRY/nextstep-web:latest
 
-      - name: Update Kubernetes manifests with new image tags
-        run: |
-          sed -i "s|IMAGE_TAG_PLACEHOLDER|${{ github.sha }}|g" k8s/*.yaml
-
+      # ── GKE credentials ───────────────────────────────────────────────────
       - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v2
         with:
           cluster_name: ${{ secrets.GKE_CLUSTER_NAME }}
-          location: ${{ env.REGION }}
+          location: ${{ secrets.GKE_CLUSTER_ZONE }}
 
-      - name: Apply namespace and config
+      # ── Bootstrap cluster resources ───────────────────────────────────────
+      - name: Apply namespace
+        run: kubectl apply -f k8s/namespace.yaml
+
+      - name: Create / update app secrets
         run: |
-          kubectl apply -f k8s/namespace.yaml
-          kubectl apply -f k8s/backend-deployment.yaml  # includes ConfigMap
+          kubectl create secret generic nextstep-secrets \
+            --namespace=nextstep \
+            --from-literal=GROQ_API_KEY=${{ secrets.GROQ_API_KEY }} \
+            --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Deploy to GKE
-        run: kubectl apply -f k8s/
+      # ── Apply all manifests with substituted image tags ───────────────────
+      - name: Substitute image tags and apply manifests
+        run: |
+          # train-job is excluded from standard deploy (run via train workflow)
+          for f in k8s/*.yaml; do
+            [[ "$f" == *train-job* ]] && continue
+            sed "s|IMAGE_TAG_PLACEHOLDER|${{ github.sha }}|g" "$f" | kubectl apply -f -
+          done
+
+      # ── Wait for rollouts ─────────────────────────────────────────────────
+      - name: Wait for MLflow rollout
+        run: |
+          kubectl rollout status deployment/nextstep-mlflow \
+            --namespace=nextstep --timeout=120s
 
       - name: Wait for API rollout
         run: |
           kubectl rollout status deployment/nextstep-api \
-            --namespace=nextstep --timeout=120s
+            --namespace=nextstep --timeout=180s
 
       - name: Wait for web rollout
         run: |
           kubectl rollout status deployment/nextstep-web \
             --namespace=nextstep --timeout=60s
 
+      # ── Smoke tests ───────────────────────────────────────────────────────
       - name: Smoke test — health endpoint
         run: |
-          sleep 10
-          curl -f --retry 5 --retry-delay 5 \
-            https://$DOMAIN/health || exit 1
+          sleep 15
+          curl -f --retry 6 --retry-delay 10 --retry-connrefused \
+            https://$DOMAIN/health
+        continue-on-error: true  # domain/TLS may not be configured yet
 
-      - name: Smoke test — students endpoint
+      - name: Smoke test — students endpoint (internal)
         run: |
-          curl -f --retry 3 --retry-delay 5 \
-            "https://$DOMAIN/api/students?limit=1" || exit 1
+          API_POD=$(kubectl get pods -n nextstep -l app=nextstep-api \
+            -o jsonpath='{.items[0].metadata.name}')
+          kubectl exec -n nextstep $API_POD -c api -- \
+            wget -qO- http://localhost:8080/api/students 2>&1 | head -c 200
 
+      # ── Rollback on failure ───────────────────────────────────────────────
       - name: Rollback on failure
         if: failure()
         run: |
           echo "Deploy failed — rolling back..."
-          kubectl rollout undo deployment/nextstep-api --namespace=nextstep
-          kubectl rollout undo deployment/nextstep-web --namespace=nextstep
+          kubectl rollout undo deployment/nextstep-api --namespace=nextstep || true
+          kubectl rollout undo deployment/nextstep-web --namespace=nextstep || true

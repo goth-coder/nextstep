@@ -10,41 +10,115 @@ on:
         type: choice
         options: ["true", "false"]
 
+env:
+  PROJECT_ID: nextstep-fiap-project
+  REGION: us-central1
+  REGISTRY: us-central1-docker.pkg.dev/nextstep-fiap-project/nextstep
+
 jobs:
   train:
-    name: ETL + Train + Register
+    name: Build + ETL + Train + Promote
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Start MLflow service
-        run: docker compose up mlflow -d
-
-      - name: Wait for MLflow to be healthy
-        run: |
-          for i in {1..30}; do
-            if curl -sf http://localhost:5000/health; then
-              echo "MLflow is ready"
-              break
-            fi
-            echo "Waiting for MLflow ($i/30)…"
-            sleep 2
-          done
-
-      - name: Run ETL pipeline
-        run: docker compose run --rm api python ml/data_loader.py
-        env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-
-      - name: Train LSTM & register model
-        run: docker compose run --rm api python ml/train.py
-        env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          MLFLOW_TRACKING_URI: http://mlflow:5000
-
-      - name: Upload MLflow registry artifact
-        uses: actions/upload-artifact@v4
+      # ── GCP auth ──────────────────────────────────────────────────────────
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
         with:
-          name: mlflow-registry
-          path: mlruns/
-          retention-days: 30
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev
+
+      # ── Build & push API image (training job reuses same image) ───────────
+      - name: Build & push API image
+        run: |
+          docker build -t $REGISTRY/nextstep-api:${{ github.sha }} ./backend
+          docker push $REGISTRY/nextstep-api:${{ github.sha }}
+
+      # ── GKE credentials ───────────────────────────────────────────────────
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ secrets.GKE_CLUSTER_NAME }}
+          location: ${{ secrets.GKE_CLUSTER_ZONE }}
+
+      # ── Submit training job ───────────────────────────────────────────────
+      - name: Delete previous training job (if any)
+        run: kubectl delete job nextstep-train -n nextstep 2>/dev/null || true
+
+      - name: Apply training job
+        run: |
+          sed "s|IMAGE_TAG_PLACEHOLDER|${{ github.sha }}|g" k8s/train-job.yaml \
+            | kubectl apply -f -
+
+      - name: Wait for training job to complete
+        run: |
+          kubectl wait job/nextstep-train \
+            --for=condition=Complete \
+            --namespace=nextstep \
+            --timeout=900s
+
+      - name: Stream training logs
+        if: always()
+        run: |
+          kubectl logs -n nextstep \
+            -l job-name=nextstep-train \
+            --tail=60 2>/dev/null || true
+
+      # ── Promote model aliases ─────────────────────────────────────────────
+      - name: Install mlflow client
+        run: pip install --quiet mlflow
+
+      - name: Port-forward MLflow
+        run: |
+          kubectl port-forward -n nextstep \
+            svc/nextstep-mlflow-service 5000:5000 &
+          echo "PF_PID=$!" >> $GITHUB_ENV
+          sleep 5
+
+      - name: Promote latest version to @staging
+        run: |
+          python3 - <<'EOF'
+          import mlflow, os, sys
+          client = mlflow.MlflowClient("http://localhost:5000")
+          versions = client.search_model_versions("name='nextstep-lstm'")
+          if not versions:
+              print("No model versions found — training may have failed")
+              sys.exit(1)
+          latest = max(versions, key=lambda v: int(v.version))
+          client.set_registered_model_alias("nextstep-lstm", "staging", latest.version)
+          print(f"✅ Version {latest.version} promoted to @staging")
+          print(f"   run_id: {latest.run_id}")
+          print(f"   source: {latest.source}")
+          EOF
+
+      - name: Promote @staging to @prod
+        if: ${{ inputs.promote_to_prod == 'true' }}
+        run: |
+          python3 - <<'EOF'
+          import mlflow
+          client = mlflow.MlflowClient("http://localhost:5000")
+          mv = client.get_model_version_by_alias("nextstep-lstm", "staging")
+          client.set_registered_model_alias("nextstep-lstm", "prod", mv.version)
+          print(f"✅ Version {mv.version} promoted to @prod")
+          EOF
+
+      - name: Kill port-forward
+        if: always()
+        run: kill $PF_PID 2>/dev/null || true
+
+      # ── Restart API to load new model ─────────────────────────────────────
+      - name: Restart API deployment (load new @prod model)
+        if: ${{ inputs.promote_to_prod == 'true' }}
+        run: |
+          kubectl rollout restart deployment/nextstep-api -n nextstep
+          kubectl rollout status deployment/nextstep-api -n nextstep --timeout=180s
