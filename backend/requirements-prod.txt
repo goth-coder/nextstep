@@ -13,6 +13,8 @@ scikit-learn==1.5.1
 numpy==1.26.4
 pandas==2.2.2
 openpyxl==3.1.5          # reads .xlsx data file at startup
+gcsfs==2024.6.0          # enables pandas to read gs:// URIs directly
+google-auth==2.29.0      # GCS authentication in GKE pods
 optuna==3.6.1
 
 # MLflow (model registry + artifact download)

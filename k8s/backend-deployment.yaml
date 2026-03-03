@@ -30,6 +30,8 @@ spec:
                 configMapKeyRef:
                   name: nextstep-config
                   key: mlflow-tracking-uri
+            - name: DATA_PATH
+              value: "gs://nextstep-bucket/raw/BASE DE DADOS PEDE 2022-2024 - DATATHON.xlsx"
           resources:
             requests:
               memory: "256Mi"
@@ -68,6 +70,8 @@ spec:
                 configMapKeyRef:
                   name: nextstep-config
                   key: allowed-origin
+            - name: DATA_PATH
+              value: "gs://nextstep-bucket/raw/BASE DE DADOS PEDE 2022-2024 - DATATHON.xlsx"
           resources:
             requests:
               memory: "512Mi"   # steady-state after startup inference ~400 MB

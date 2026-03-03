@@ -22,6 +22,8 @@ spec:
           env:
             - name: MLFLOW_TRACKING_URI
               value: "http://nextstep-mlflow-service:5000"
+            - name: DATA_PATH
+              value: "gs://nextstep-bucket/raw/BASE DE DADOS PEDE 2022-2024 - DATATHON.xlsx"
             - name: GIT_PYTHON_REFRESH
               value: "quiet"
             - name: GROQ_API_KEY

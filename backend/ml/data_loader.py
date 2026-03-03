@@ -205,7 +205,12 @@ def _load_sheet(xl: pd.ExcelFile, sheet: str, year: int) -> pd.DataFrame:
     return df
 
 
-def _find_xlsx() -> Path:
+def _find_xlsx():
+    """Return the xlsx path (local Path or gs:// URI string)."""
+    data_path = os.environ.get("DATA_PATH", "")
+    if data_path.startswith("gs://"):
+        log.info("Using GCS data path: %s", data_path)
+        return data_path  # pandas + gcsfs reads gs:// URIs natively
     for p in _XLSX_CANDIDATES:
         if p and p.is_file():
             return p
