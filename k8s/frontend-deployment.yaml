@@ -6,7 +6,7 @@ metadata:
   labels:
     app: nextstep-web
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: nextstep-web

@@ -6,7 +6,7 @@ metadata:
   labels:
     app: nextstep-api
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: nextstep-api
@@ -33,7 +33,7 @@ spec:
           resources:
             requests:
               memory: "256Mi"
-              cpu: "250m"
+              cpu: "100m"
             limits:
               memory: "512Mi"
               cpu: "500m"
@@ -71,7 +71,7 @@ spec:
           resources:
             requests:
               memory: "512Mi"   # steady-state after startup inference ~400 MB
-              cpu: "250m"       # inference runs once at startup; idle after
+              cpu: "100m"       # inference runs once at startup; idle after
             limits:
               memory: "1.5Gi"   # startup LSTM batch inference peak ~800 MB
               cpu: "1000m"      # burst during startup + concurrent requests
