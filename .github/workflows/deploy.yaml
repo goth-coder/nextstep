@@ -64,6 +64,23 @@ jobs:
           cluster_name: ${{ secrets.GKE_CLUSTER_NAME }}
           location: ${{ secrets.GKE_CLUSTER_ZONE }}
 
+      # ── Helm: ingress-nginx + cert-manager (idempotent) ──────────────────
+      - name: Install ingress-nginx
+        run: |
+          helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx --force-update
+          helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+            --namespace ingress-nginx --create-namespace \
+            --set controller.replicaCount=1 \
+            --wait --timeout=120s
+
+      - name: Install cert-manager
+        run: |
+          helm repo add jetstack https://charts.jetstack.io --force-update
+          helm upgrade --install cert-manager jetstack/cert-manager \
+            --namespace cert-manager --create-namespace \
+            --set crds.enabled=true \
+            --wait --timeout=120s
+
       # ── Bootstrap cluster resources ───────────────────────────────────────
       - name: Apply namespace
         run: kubectl apply -f k8s/namespace.yaml
@@ -78,11 +95,16 @@ jobs:
       # ── Apply all manifests with substituted image tags ───────────────────
       - name: Substitute image tags and apply manifests
         run: |
-          # train-job is excluded from standard deploy (run via train workflow)
+          # train-job.yaml → run via train workflow
+          # cluster-issuer.yaml → applied separately after cert-manager is ready
           for f in k8s/*.yaml; do
-            [[ "$f" == *train-job* ]] && continue
+            [[ "$f" == *train-job* ]]     && continue
+            [[ "$f" == *cluster-issuer* ]] && continue
             sed "s|IMAGE_TAG_PLACEHOLDER|${{ github.sha }}|g" "$f" | kubectl apply -f -
           done
+
+      - name: Apply cert-manager ClusterIssuers
+        run: kubectl apply -f k8s/cluster-issuer.yaml
 
       # ── Wait for rollouts ─────────────────────────────────────────────────
       - name: Wait for MLflow rollout
