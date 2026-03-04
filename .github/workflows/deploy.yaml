@@ -86,8 +86,9 @@ jobs:
             if [[ "$ACT_AS_PERMISSION" != "iam.serviceAccounts.actAs" ]]; then
               echo "Missing iam.serviceAccountUser (actAs) on node SA: $NODE_SA"
               echo "Grant this once with a Project Owner account:"
-              echo "gcloud iam service-accounts add-iam-policy-binding $NODE_SA \\\n+  --member=serviceAccount:$DEPLOYER_SA \\\n+  --role=roles/iam.serviceAccountUser \\\n+  --project=$PROJECT_ID"
-              exit 1
+              echo "gcloud iam service-accounts add-iam-policy-binding $NODE_SA --member=serviceAccount:$DEPLOYER_SA --role=roles/iam.serviceAccountUser --project=$PROJECT_ID"
+              echo "Falling back to default node service account for cluster creation."
+              NODE_SA=""
             fi
           else
             echo "GKE_NODE_SERVICE_ACCOUNT not set; creating cluster with default node service account."
