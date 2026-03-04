@@ -26,6 +26,8 @@ spec:
               value: "gs://nextstep-bucket/raw/BASE DE DADOS PEDE 2022-2024 - DATATHON.xlsx"
             - name: GIT_PYTHON_REFRESH
               value: "quiet"
+            - name: GCS_BUCKET
+              value: "nextstep-bucket"
             - name: GROQ_API_KEY
               valueFrom:
                 secretKeyRef:

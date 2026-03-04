@@ -73,8 +73,8 @@ class StudentRecord:
     gender: int  # 0=Feminino, 1=Masculino
     age: Optional[int]  # Age in the observation year
     year: int  # Year of the observation used for inference
-    risk_score: float  # Model output — P(defasagem next year < 0) in [0, 1]
-    risk_tier: RiskTier  # Categorical derivation of risk_score
+    risk_score: Optional[float]  # Model output — None until model is trained and loaded
+    risk_tier: Optional[RiskTier]  # None until model loaded
     indicators: Indicators  # Scaled indicator values
 
     @classmethod
@@ -89,8 +89,8 @@ class StudentRecord:
         gender: int,
         age: Optional[int],
         year: int,
-        risk_score: float,
         indicators: Indicators,
+        risk_score: Optional[float] = None,
     ) -> "StudentRecord":
         return cls(
             student_id=student_id,
@@ -102,7 +102,7 @@ class StudentRecord:
             gender=gender,
             age=age,
             year=year,
-            risk_score=round(risk_score, 4),
-            risk_tier=RiskTier.from_score(risk_score),
+            risk_score=round(risk_score, 4) if risk_score is not None else None,
+            risk_tier=RiskTier.from_score(risk_score) if risk_score is not None else None,
             indicators=indicators,
         )

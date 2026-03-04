@@ -65,10 +65,14 @@ def readyz():
 @routes_bp.get("/api/students")
 def list_students():
     cache = current_app.extensions["cache"]
-    if not cache.is_ready():
-        detail = cache.last_error() or "Model not yet loaded"
-        return jsonify({"error": "Model not yet loaded", "detail": detail}), 503
-    records = sorted(cache.get_all(), key=lambda r: (-r.risk_score, r.display_name))
+    if not cache.has_students():
+        detail = cache.last_error() or "Student data not yet available"
+        return jsonify({"error": "Student data not yet loaded", "detail": detail}), 503
+    # Sort by risk_score descending (None scores go to the end)
+    records = sorted(
+        cache.get_all(),
+        key=lambda r: (-(r.risk_score or 0.0) if r.risk_score is not None else float("-inf"), r.display_name),
+    )
     students = [
         {
             "student_id": r.student_id,
@@ -76,7 +80,7 @@ def list_students():
             "phase": r.phase,
             "class_group": r.class_group,
             "risk_score": r.risk_score,
-            "risk_tier": r.risk_tier.value,
+            "risk_tier": r.risk_tier.value if r.risk_tier is not None else None,
         }
         for r in records
     ]
@@ -86,9 +90,9 @@ def list_students():
 @routes_bp.get("/api/students/<int:student_id>")
 def get_student(student_id: int):
     cache = current_app.extensions["cache"]
-    if not cache.is_ready():
-        detail = cache.last_error() or "Model not yet loaded"
-        return jsonify({"error": "Model not yet loaded", "detail": detail}), 503
+    if not cache.has_students():
+        detail = cache.last_error() or "Student data not yet available"
+        return jsonify({"error": "Student data not yet loaded", "detail": detail}), 503
     record = cache.get_by_id(student_id)
     if record is None:
         return jsonify({"error": "Student not found"}), 404
@@ -103,7 +107,7 @@ def get_student(student_id: int):
             "gender": record.gender,
             "age": record.age,
             "risk_score": record.risk_score,
-            "risk_tier": record.risk_tier.value,
+            "risk_tier": record.risk_tier.value if record.risk_tier is not None else None,
             "indicators": {
                 "iaa": ind.iaa,
                 "ieg": ind.ieg,

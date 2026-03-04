@@ -38,7 +38,7 @@ def create_app() -> Flask:
     limiter.init_app(app)
 
     from app.repositories.mlflow_model import MLflowModelRepository
-    from app.repositories.student_data import DiskStudentDataRepository
+    from app.repositories.student_data import make_student_data_repository
     from app.services.cache import StudentCacheService
     from app.services.llm import LLMService
     from app.services.prediction import PredictionService
@@ -46,10 +46,11 @@ def create_app() -> Flask:
     tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
     log.info("Starting API with MLFLOW_TRACKING_URI=%s", tracking_uri)
 
+    data_repo = make_student_data_repository()
     cache_svc = StudentCacheService(
         PredictionService(
             model_repo=MLflowModelRepository(tracking_uri=tracking_uri),
-            data_repo=DiskStudentDataRepository(),
+            data_repo=data_repo,
         )
     )
     llm_svc = LLMService(api_key=os.getenv("GROQ_API_KEY"))
@@ -58,10 +59,16 @@ def create_app() -> Flask:
     app.extensions["llm"] = llm_svc
 
     with app.app_context():
+        # Phase 1: always load students from GCS (no model needed)
         try:
-            cache_svc.load_with_retry()
+            cache_svc.load_students()
         except Exception as exc:  # noqa: BLE001
-            log.error("Prediction cache failed to load: %s", exc, exc_info=True)
+            log.error("Student metadata load failed: %s", exc, exc_info=True)
+        # Phase 2: try to load model scores (may fail if model not trained yet)
+        try:
+            cache_svc.load_model_scores()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Model not loaded (training required): %s", exc)
 
     from app.routes import routes_bp
 

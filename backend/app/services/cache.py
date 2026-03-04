@@ -29,22 +29,35 @@ class StudentCacheService:
     def __init__(self, prediction_service: PredictionService) -> None:
         self._prediction_service = prediction_service
         self._cache: dict[int, StudentRecord] = {}
-        self._ready: bool = False
+        self._students_ready: bool = False  # Phase 1: metadata loaded
+        self._ready: bool = False           # Phase 2: model scores loaded
         self._last_error: str | None = None
         self._last_attempt_at: str | None = None
         self._attempt_count: int = 0
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
-    def load(self) -> None:
-        """Run batch inference and populate cache. Called once at app startup."""
+    def load_students(self) -> None:
+        """Phase 1: load student metadata only (no model required)."""
         self._attempt_count += 1
+        self._last_attempt_at = datetime.now(timezone.utc).isoformat()
+        records = self._prediction_service.load_students_only()
+        self._cache = {r.student_id: r for r in records}
+        self._students_ready = True
+        self._last_error = None
+        log.info("Phase-1 cache ready ✓  %d students (no scores)", len(self._cache))
+
+    def load_model_scores(self) -> None:
+        """Phase 2: run model inference and update risk scores in cache."""
         self._last_attempt_at = datetime.now(timezone.utc).isoformat()
         records = self._prediction_service.run_batch_inference()
         self._cache = {r.student_id: r for r in records}
         self._ready = True
-        self._last_error = None
-        log.info("StudentCacheService ready ✓  %d students loaded", len(self._cache))
+        log.info("Phase-2 cache ready ✓  %d students (with scores)", len(self._cache))
+
+    def load(self) -> None:
+        """Legacy: run full batch inference (called during retry loop)."""
+        self.load_model_scores()
 
     def load_with_retry(self) -> None:
         """Load cache with bounded retry and exponential backoff."""
@@ -80,7 +93,12 @@ class StudentCacheService:
 
     # ── Queries ───────────────────────────────────────────────────────────────
 
+    def has_students(self) -> bool:
+        """True after phase-1 (metadata loaded, students visible)."""
+        return self._students_ready
+
     def is_ready(self) -> bool:
+        """True after phase-2 (model loaded, risk scores populated)."""
         return self._ready
 
     def get_all(self) -> list[StudentRecord]:
@@ -91,6 +109,9 @@ class StudentCacheService:
 
     def count(self) -> int:
         return len(self._cache)
+
+    def attempts(self) -> int:
+        return self._attempt_count
 
     def last_error(self) -> str | None:
         return self._last_error

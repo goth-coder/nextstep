@@ -49,7 +49,7 @@ class PredictionService:
 
     def run_batch_inference(self) -> list[StudentRecord]:
         """
-        Load model + data, run inference, return StudentRecord list.
+        Load model + data, run inference, return StudentRecord list with scores.
         Raises on any loading failure (caller decides on retry / 503).
         """
         self._model_repo.load()
@@ -61,8 +61,25 @@ class PredictionService:
         scores: np.ndarray = self._model_repo.predict(X)
         log.info("Inference complete ✓")
 
+        return self._build_records(metadata, scores)
+
+    def load_students_only(self) -> list[StudentRecord]:
+        """
+        Load student metadata from GCS without running the model.
+        Returns StudentRecord list with risk_score=None (model not required).
+        """
+        metadata: list[dict[str, Any]] = self._data_repo.load_metadata()
+        log.info("Loaded %d students (no model inference)", len(metadata))
+        return self._build_records(metadata, scores=None)
+
+    def _build_records(
+        self,
+        metadata: list[dict[str, Any]],
+        scores: np.ndarray | None,
+    ) -> list[StudentRecord]:
         records: list[StudentRecord] = []
-        for i, (meta, score) in enumerate(zip(metadata, scores, strict=False)):
+        for i, meta in enumerate(metadata):
+            score: float | None = float(scores[i]) if scores is not None else None
             indicators = Indicators(
                 iaa=meta.get("iaa"),
                 ieg=meta.get("ieg"),
@@ -84,11 +101,10 @@ class PredictionService:
                 gender=int(meta.get("gender", 0)),
                 age=meta.get("age"),
                 year=meta.get("year", 2024),
-                risk_score=float(score),
+                risk_score=score,
                 indicators=indicators,
             )
             records.append(record)
-
         return records
 
     def predict_one(self, raw_features: dict) -> float:

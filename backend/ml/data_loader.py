@@ -406,6 +406,13 @@ def run_etl() -> None:
         pickle.dump(students_meta, f)
     log.info("Saved students_meta.pkl  (%d records)", len(students_meta))
 
+    # ── 9. Upload processed artefacts to GCS ──────────────────────────────────
+    bucket_name = os.environ.get("GCS_BUCKET", "")
+    if bucket_name:
+        _upload_processed_to_gcs(bucket_name)
+    else:
+        log.warning("GCS_BUCKET not set — skipping GCS upload (local dev mode)")
+
     log.info(
         "ETL complete ✓  Train=%d  Test=%d  Inference=%d  INPUT_SIZE=%d",
         len(X_train),
@@ -413,6 +420,37 @@ def run_etl() -> None:
         len(X_infer),
         INPUT_SIZE,
     )
+
+
+def _upload_processed_to_gcs(bucket_name: str) -> None:
+    """Upload all processed artefacts to GCS (primary store)."""
+    try:
+        from google.cloud import storage  # noqa: PLC0415
+    except ImportError:
+        log.warning("google-cloud-storage not installed — cannot upload to GCS")
+        return
+
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    artefacts = [
+        "X_train.npy", "y_train.npy",
+        "X_test.npy", "y_test.npy",
+        "X_inference.npy",
+        "scaler.pkl",
+        "students_meta.pkl",
+        "best_params.json",
+    ]
+    uploaded = 0
+    for fname in artefacts:
+        local = PROCESSED_DIR / fname
+        if not local.exists():
+            log.debug("Skipping %s (not found locally)", fname)
+            continue
+        blob = bucket.blob(f"processed/{fname}")
+        blob.upload_from_filename(str(local))
+        log.info("Uploaded gs://%s/processed/%s", bucket_name, fname)
+        uploaded += 1
+    log.info("GCS upload complete ✓  %d files → gs://%s/processed/", uploaded, bucket_name)
 
 
 if __name__ == "__main__":
