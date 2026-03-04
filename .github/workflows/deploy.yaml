@@ -258,10 +258,60 @@ jobs:
           kubectl rollout status deployment/nextstep-mlflow \
             --namespace=nextstep --timeout=120s
 
+      - name: Check if MLflow has a trained model
+        id: mlflow-check
+        run: |
+          MLFLOW_POD=$(kubectl get pods -n nextstep -l app=nextstep-mlflow \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+          if [[ -z "$MLFLOW_POD" ]]; then
+            echo "model_ready=false" >> "$GITHUB_OUTPUT"
+            echo "MLflow pod not found; assuming fresh cluster."
+            exit 0
+          fi
+          MODEL_COUNT=$(kubectl exec -n nextstep "$MLFLOW_POD" -- \
+            sh -c 'find /mlflow/artifacts -name "MLmodel" 2>/dev/null | wc -l' \
+            2>/dev/null || echo "0")
+          if [[ "$MODEL_COUNT" -gt 0 ]]; then
+            echo "model_ready=true" >> "$GITHUB_OUTPUT"
+            echo "MLflow has $MODEL_COUNT model artifact(s) — API should become ready."
+          else
+            echo "model_ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::MLflow has no trained models yet. Triggering Train workflow automatically."
+          fi
+
+      - name: Trigger Train workflow (fresh cluster — no model found)
+        if: steps.mlflow-check.outputs.model_ready != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        timeout-minutes: 50
+        run: |
+          echo "No trained model found — triggering train.yaml with promote_to_prod=true..."
+          gh workflow run train.yaml \
+            --repo "${{ github.repository }}" \
+            --field promote_to_prod=true
+
+          # Give GitHub a moment to register the run
+          sleep 15
+
+          RUN_ID=$(gh run list \
+            --repo "${{ github.repository }}" \
+            --workflow=train.yaml \
+            --limit=1 \
+            --json databaseId \
+            --jq '.[0].databaseId')
+
+          echo "Train run ID: $RUN_ID — waiting for completion (this may take ~20-40 min)..."
+          gh run watch "$RUN_ID" \
+            --repo "${{ github.repository }}" \
+            --exit-status \
+            --interval=30
+
+          echo "Training completed — proceeding with API rollout."
+
       - name: Wait for API rollout
         run: |
           kubectl rollout status deployment/nextstep-api \
-            --namespace=nextstep --timeout=180s
+            --namespace=nextstep --timeout=300s
 
       - name: Wait for web rollout
         run: |
@@ -279,12 +329,17 @@ jobs:
         run: |
           API_POD=$(kubectl get pods -n nextstep -l app=nextstep-api \
             -o jsonpath='{.items[0].metadata.name}')
-          kubectl exec -n nextstep $API_POD -c api -- \
+          kubectl exec -n nextstep "$API_POD" -- \
             wget -qO- http://localhost:8080/api/students 2>&1 | head -c 200
 
       - name: Rollback on failure
         if: failure()
         run: |
           echo "Deploy failed — rolling back..."
-          kubectl rollout undo deployment/nextstep-api --namespace=nextstep || true
-          kubectl rollout undo deployment/nextstep-web --namespace=nextstep || true
+          REVISIONS=$(kubectl rollout history deployment/nextstep-api -n nextstep --no-headers 2>/dev/null | wc -l)
+          if [[ "$REVISIONS" -gt 1 ]]; then
+            kubectl rollout undo deployment/nextstep-api --namespace=nextstep || true
+            kubectl rollout undo deployment/nextstep-web --namespace=nextstep || true
+          else
+            echo "Fresh deployment — no previous revision to roll back to. Run Train workflow to seed MLflow."
+          fi
