@@ -2,6 +2,7 @@ FROM ghcr.io/mlflow/mlflow:v2.14.3
 
 RUN pip install google-cloud-storage --quiet
 
+COPY sync.py /sync.py
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
