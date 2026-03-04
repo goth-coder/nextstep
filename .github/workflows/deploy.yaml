@@ -131,7 +131,7 @@ jobs:
             --cpu 2 \
             --min-instances 0 \
             --max-instances 3 \
-            --set-env-vars "MLFLOW_TRACKING_URI=${{ steps.mlflow.outputs.url }},PORT=8080,GIT_PYTHON_REFRESH=quiet,GROQ_API_KEY=${{ secrets.GROQ_API_KEY }},DATA_PATH=gs://${{ secrets.GCS_BUCKET }}/raw/BASE DE DADOS PEDE 2022-2024 - DATATHON.xlsx" \
+            --set-env-vars "MLFLOW_TRACKING_URI=${{ steps.mlflow.outputs.url }},GIT_PYTHON_REFRESH=quiet,GROQ_API_KEY=${{ secrets.GROQ_API_KEY }},DATA_PATH=gs://${{ secrets.GCS_BUCKET }}/raw/BASE DE DADOS PEDE 2022-2024 - DATATHON.xlsx" \
             --quiet
           echo "✅ Backend deployed"
 
