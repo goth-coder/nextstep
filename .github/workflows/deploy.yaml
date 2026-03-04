@@ -72,44 +72,49 @@ jobs:
             exit 0
           fi
 
-          PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
-          DEFAULT_NODE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
           NODE_SA="${{ secrets.GKE_NODE_SERVICE_ACCOUNT }}"
-          NODE_SA="${NODE_SA:-$DEFAULT_NODE_SA}"
 
           echo "Cluster not found. Will create '$CLUSTER_NAME' in '$INPUT_LOCATION'."
-          echo "Using node service account: $NODE_SA"
+          if [[ -n "$NODE_SA" ]]; then
+            echo "Using node service account: $NODE_SA"
 
-          ACT_AS_PERMISSION="$(gcloud iam service-accounts test-iam-permissions "$NODE_SA" \
-            --permissions=iam.serviceAccounts.actAs \
-            --project "$PROJECT_ID" \
-            --format='value(permissions[0])' 2>/dev/null || true)"
+            ACT_AS_PERMISSION="$(gcloud iam service-accounts test-iam-permissions "$NODE_SA" \
+              --permissions=iam.serviceAccounts.actAs \
+              --project "$PROJECT_ID" \
+              --format='value(permissions[0])' 2>/dev/null || true)"
 
-          if [[ "$ACT_AS_PERMISSION" != "iam.serviceAccounts.actAs" ]]; then
-            echo "Missing iam.serviceAccountUser (actAs) on node SA: $NODE_SA"
-            echo "Grant this once with a Project Owner account:"
-            echo "gcloud iam service-accounts add-iam-policy-binding $NODE_SA \\\n  --member=serviceAccount:$DEPLOYER_SA \\\n  --role=roles/iam.serviceAccountUser \\\n  --project=$PROJECT_ID"
-            exit 1
+            if [[ "$ACT_AS_PERMISSION" != "iam.serviceAccounts.actAs" ]]; then
+              echo "Missing iam.serviceAccountUser (actAs) on node SA: $NODE_SA"
+              echo "Grant this once with a Project Owner account:"
+              echo "gcloud iam service-accounts add-iam-policy-binding $NODE_SA \\\n+  --member=serviceAccount:$DEPLOYER_SA \\\n+  --role=roles/iam.serviceAccountUser \\\n+  --project=$PROJECT_ID"
+              exit 1
+            fi
+          else
+            echo "GKE_NODE_SERVICE_ACCOUNT not set; creating cluster with default node service account."
           fi
 
           if [[ "$INPUT_LOCATION" =~ -[a-z]$ ]]; then
-            gcloud container clusters create "$CLUSTER_NAME" \
-              --zone "$INPUT_LOCATION" \
-              --num-nodes "$CLUSTER_NODES" \
-              --machine-type "$CLUSTER_MACHINE_TYPE" \
-              --disk-type "$CLUSTER_DISK_TYPE" \
-              --disk-size "$CLUSTER_DISK_SIZE" \
-              --service-account "$NODE_SA" \
+            CREATE_ARGS=(
+              --zone "$INPUT_LOCATION"
+              --num-nodes "$CLUSTER_NODES"
+              --machine-type "$CLUSTER_MACHINE_TYPE"
+              --disk-type "$CLUSTER_DISK_TYPE"
+              --disk-size "$CLUSTER_DISK_SIZE"
               --project "$PROJECT_ID"
+            )
+            [[ -n "$NODE_SA" ]] && CREATE_ARGS+=(--service-account "$NODE_SA")
+            gcloud container clusters create "$CLUSTER_NAME" "${CREATE_ARGS[@]}"
           else
-            gcloud container clusters create "$CLUSTER_NAME" \
-              --region "$INPUT_LOCATION" \
-              --num-nodes "$CLUSTER_NODES" \
-              --machine-type "$CLUSTER_MACHINE_TYPE" \
-              --disk-type "$CLUSTER_DISK_TYPE" \
-              --disk-size "$CLUSTER_DISK_SIZE" \
-              --service-account "$NODE_SA" \
+            CREATE_ARGS=(
+              --region "$INPUT_LOCATION"
+              --num-nodes "$CLUSTER_NODES"
+              --machine-type "$CLUSTER_MACHINE_TYPE"
+              --disk-type "$CLUSTER_DISK_TYPE"
+              --disk-size "$CLUSTER_DISK_SIZE"
               --project "$PROJECT_ID"
+            )
+            [[ -n "$NODE_SA" ]] && CREATE_ARGS+=(--service-account "$NODE_SA")
+            gcloud container clusters create "$CLUSTER_NAME" "${CREATE_ARGS[@]}"
           fi
 
           echo "Cluster created successfully."
