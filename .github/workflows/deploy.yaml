@@ -276,37 +276,51 @@ jobs:
             echo "MLflow has $MODEL_COUNT model artifact(s) — API should become ready."
           else
             echo "model_ready=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::MLflow has no trained models yet. Triggering Train workflow automatically."
+            echo "::warning::MLflow has no trained models yet. Train workflow will run automatically."
           fi
 
-      - name: Trigger Train workflow (fresh cluster — no model found)
-        if: steps.mlflow-check.outputs.model_ready != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        timeout-minutes: 50
+  train-if-needed:
+    name: Train (seed MLflow on fresh cluster)
+    needs: [deploy]
+    if: needs.deploy.outputs.model_ready != 'true'
+    uses: ./.github/workflows/train.yaml
+    with:
+      promote_to_prod: 'true'
+    secrets: inherit
+
+  verify:
+    name: Verify Rollout
+    runs-on: ubuntu-latest
+    needs: [deploy, train-if-needed]
+    if: always() && needs.deploy.result == 'success' && (needs.train-if-needed.result == 'success' || needs.train-if-needed.result == 'skipped')
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve cluster location
+        id: resolve-location
         run: |
-          echo "No trained model found — triggering train.yaml with promote_to_prod=true..."
-          gh workflow run train.yaml \
-            --repo "${{ github.repository }}" \
-            --field promote_to_prod=true
+          LOCATION="$(gcloud container clusters list \
+            --filter="name=${{ secrets.GKE_CLUSTER_NAME }}" \
+            --project "$PROJECT_ID" \
+            --format="value(location)" | head -1)"
+          echo "location=$LOCATION" >> "$GITHUB_OUTPUT"
 
-          # Give GitHub a moment to register the run
-          sleep 15
-
-          RUN_ID=$(gh run list \
-            --repo "${{ github.repository }}" \
-            --workflow=train.yaml \
-            --limit=1 \
-            --json databaseId \
-            --jq '.[0].databaseId')
-
-          echo "Train run ID: $RUN_ID — waiting for completion (this may take ~20-40 min)..."
-          gh run watch "$RUN_ID" \
-            --repo "${{ github.repository }}" \
-            --exit-status \
-            --interval=30
-
-          echo "Training completed — proceeding with API rollout."
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ secrets.GKE_CLUSTER_NAME }}
+          location: ${{ steps.resolve-location.outputs.location }}
 
       - name: Wait for API rollout
         run: |
@@ -341,5 +355,5 @@ jobs:
             kubectl rollout undo deployment/nextstep-api --namespace=nextstep || true
             kubectl rollout undo deployment/nextstep-web --namespace=nextstep || true
           else
-            echo "Fresh deployment — no previous revision to roll back to. Run Train workflow to seed MLflow."
+            echo "Fresh deployment — no previous revision to roll back to."
           fi

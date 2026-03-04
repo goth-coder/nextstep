@@ -9,6 +9,13 @@ on:
         default: "false"
         type: choice
         options: ["true", "false"]
+  workflow_call:
+    inputs:
+      promote_to_prod:
+        description: "Promote @staging to @prod after training?"
+        required: false
+        default: "true"
+        type: string
 
 env:
   PROJECT_ID: nextstep-fiap-project
