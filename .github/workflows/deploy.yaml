@@ -18,6 +18,10 @@ env:
   REGION: us-central1
   DOMAIN: nextstep-advisor.uk
   REGISTRY: us-central1-docker.pkg.dev/nextstep-fiap-project/nextstep
+  CLUSTER_NODES: "1"
+  CLUSTER_MACHINE_TYPE: e2-standard-2
+  CLUSTER_DISK_TYPE: pd-standard
+  CLUSTER_DISK_SIZE: "50"
 
 jobs:
   build-and-deploy:
@@ -42,6 +46,48 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker us-central1-docker.pkg.dev
 
+      # ── Ensure ephemeral cluster exists (auto-create if missing) ───────────
+      - name: Ensure GKE cluster exists
+        run: |
+          CLUSTER_NAME="${{ secrets.GKE_CLUSTER_NAME }}"
+          LOCATION="${{ secrets.GKE_CLUSTER_ZONE }}"
+
+          if gcloud container clusters describe "$CLUSTER_NAME" \
+            --zone "$LOCATION" \
+            --project "$PROJECT_ID" >/dev/null 2>&1; then
+            echo "Cluster found in zone: $LOCATION"
+            exit 0
+          fi
+
+          if gcloud container clusters describe "$CLUSTER_NAME" \
+            --region "$LOCATION" \
+            --project "$PROJECT_ID" >/dev/null 2>&1; then
+            echo "Cluster found in region: $LOCATION"
+            exit 0
+          fi
+
+          echo "Cluster not found. Creating cluster '$CLUSTER_NAME' in '$LOCATION'..."
+
+          if [[ "$LOCATION" =~ -[a-z]$ ]]; then
+            gcloud container clusters create "$CLUSTER_NAME" \
+              --zone "$LOCATION" \
+              --num-nodes "$CLUSTER_NODES" \
+              --machine-type "$CLUSTER_MACHINE_TYPE" \
+              --disk-type "$CLUSTER_DISK_TYPE" \
+              --disk-size "$CLUSTER_DISK_SIZE" \
+              --project "$PROJECT_ID"
+          else
+            gcloud container clusters create "$CLUSTER_NAME" \
+              --region "$LOCATION" \
+              --num-nodes "$CLUSTER_NODES" \
+              --machine-type "$CLUSTER_MACHINE_TYPE" \
+              --disk-type "$CLUSTER_DISK_TYPE" \
+              --disk-size "$CLUSTER_DISK_SIZE" \
+              --project "$PROJECT_ID"
+          fi
+
+          echo "Cluster created successfully."
+
       # ── Build & push images ───────────────────────────────────────────────
       - name: Build & push backend image
         run: |
@@ -58,11 +104,41 @@ jobs:
           docker push $REGISTRY/nextstep-web:latest
 
       # ── GKE credentials ───────────────────────────────────────────────────
+      - name: Resolve GKE location
+        id: resolve-gke
+        run: |
+          CLUSTER_NAME="${{ secrets.GKE_CLUSTER_NAME }}"
+          INPUT_LOCATION="${{ secrets.GKE_CLUSTER_ZONE }}"
+
+          if gcloud container clusters describe "$CLUSTER_NAME" \
+            --zone "$INPUT_LOCATION" \
+            --project "$PROJECT_ID" >/dev/null 2>&1; then
+            echo "location=$INPUT_LOCATION" >> "$GITHUB_OUTPUT"
+            echo "Resolved GKE location as zone: $INPUT_LOCATION"
+            exit 0
+          fi
+
+          if gcloud container clusters describe "$CLUSTER_NAME" \
+            --region "$INPUT_LOCATION" \
+            --project "$PROJECT_ID" >/dev/null 2>&1; then
+            echo "location=$INPUT_LOCATION" >> "$GITHUB_OUTPUT"
+            echo "Resolved GKE location as region: $INPUT_LOCATION"
+            exit 0
+          fi
+
+          echo "Cluster not found with provided secrets."
+          echo "PROJECT_ID=$PROJECT_ID"
+          echo "GKE_CLUSTER_NAME=$CLUSTER_NAME"
+          echo "GKE_CLUSTER_ZONE=$INPUT_LOCATION"
+          echo "Available clusters in project:"
+          gcloud container clusters list --project "$PROJECT_ID" || true
+          exit 1
+
       - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v2
         with:
           cluster_name: ${{ secrets.GKE_CLUSTER_NAME }}
-          location: ${{ secrets.GKE_CLUSTER_ZONE }}
+          location: ${{ steps.resolve-gke.outputs.location }}
 
       # ── Helm: ingress-nginx + cert-manager (idempotent) ──────────────────
       - name: Install ingress-nginx
