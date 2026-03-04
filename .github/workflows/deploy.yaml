@@ -24,17 +24,106 @@ env:
   CLUSTER_DISK_SIZE: "50"
 
 jobs:
-  build-and-deploy:
-    name: Build, Push & Deploy
+  ensure-cluster:
+    name: Ensure GKE Cluster
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
+    outputs:
+      location: ${{ steps.ensure.outputs.location }}
+    steps:
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Ensure cluster exists (create if missing)
+        id: ensure
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CLUSTER_NAME="${{ secrets.GKE_CLUSTER_NAME }}"
+          INPUT_LOCATION="${{ secrets.GKE_CLUSTER_ZONE }}"
+          DEPLOYER_SA="$(gcloud config get-value account 2>/dev/null || true)"
+
+          if [[ -z "$CLUSTER_NAME" || -z "$INPUT_LOCATION" ]]; then
+            echo "Missing required secrets: GKE_CLUSTER_NAME / GKE_CLUSTER_ZONE"
+            exit 1
+          fi
+
+          if gcloud container clusters describe "$CLUSTER_NAME" \
+            --zone "$INPUT_LOCATION" \
+            --project "$PROJECT_ID" >/dev/null 2>&1; then
+            echo "Cluster found in zone: $INPUT_LOCATION"
+            echo "location=$INPUT_LOCATION" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if gcloud container clusters describe "$CLUSTER_NAME" \
+            --region "$INPUT_LOCATION" \
+            --project "$PROJECT_ID" >/dev/null 2>&1; then
+            echo "Cluster found in region: $INPUT_LOCATION"
+            echo "location=$INPUT_LOCATION" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+          DEFAULT_NODE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+          NODE_SA="${{ secrets.GKE_NODE_SERVICE_ACCOUNT }}"
+          NODE_SA="${NODE_SA:-$DEFAULT_NODE_SA}"
+
+          echo "Cluster not found. Will create '$CLUSTER_NAME' in '$INPUT_LOCATION'."
+          echo "Using node service account: $NODE_SA"
+
+          ACT_AS_PERMISSION="$(gcloud iam service-accounts test-iam-permissions "$NODE_SA" \
+            --permissions=iam.serviceAccounts.actAs \
+            --project "$PROJECT_ID" \
+            --format='value(permissions[0])' 2>/dev/null || true)"
+
+          if [[ "$ACT_AS_PERMISSION" != "iam.serviceAccounts.actAs" ]]; then
+            echo "Missing iam.serviceAccountUser (actAs) on node SA: $NODE_SA"
+            echo "Grant this once with a Project Owner account:"
+            echo "gcloud iam service-accounts add-iam-policy-binding $NODE_SA \\\n  --member=serviceAccount:$DEPLOYER_SA \\\n  --role=roles/iam.serviceAccountUser \\\n  --project=$PROJECT_ID"
+            exit 1
+          fi
+
+          if [[ "$INPUT_LOCATION" =~ -[a-z]$ ]]; then
+            gcloud container clusters create "$CLUSTER_NAME" \
+              --zone "$INPUT_LOCATION" \
+              --num-nodes "$CLUSTER_NODES" \
+              --machine-type "$CLUSTER_MACHINE_TYPE" \
+              --disk-type "$CLUSTER_DISK_TYPE" \
+              --disk-size "$CLUSTER_DISK_SIZE" \
+              --service-account "$NODE_SA" \
+              --project "$PROJECT_ID"
+          else
+            gcloud container clusters create "$CLUSTER_NAME" \
+              --region "$INPUT_LOCATION" \
+              --num-nodes "$CLUSTER_NODES" \
+              --machine-type "$CLUSTER_MACHINE_TYPE" \
+              --disk-type "$CLUSTER_DISK_TYPE" \
+              --disk-size "$CLUSTER_DISK_SIZE" \
+              --service-account "$NODE_SA" \
+              --project "$PROJECT_ID"
+          fi
+
+          echo "Cluster created successfully."
+          echo "location=$INPUT_LOCATION" >> "$GITHUB_OUTPUT"
+
+  build-backend:
+    name: Build Backend Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
-      # ── GCP auth ──────────────────────────────────────────────────────────
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
@@ -46,55 +135,32 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker us-central1-docker.pkg.dev
 
-      # ── Ensure ephemeral cluster exists (auto-create if missing) ───────────
-      - name: Ensure GKE cluster exists
-        run: |
-          CLUSTER_NAME="${{ secrets.GKE_CLUSTER_NAME }}"
-          LOCATION="${{ secrets.GKE_CLUSTER_ZONE }}"
-
-          if gcloud container clusters describe "$CLUSTER_NAME" \
-            --zone "$LOCATION" \
-            --project "$PROJECT_ID" >/dev/null 2>&1; then
-            echo "Cluster found in zone: $LOCATION"
-            exit 0
-          fi
-
-          if gcloud container clusters describe "$CLUSTER_NAME" \
-            --region "$LOCATION" \
-            --project "$PROJECT_ID" >/dev/null 2>&1; then
-            echo "Cluster found in region: $LOCATION"
-            exit 0
-          fi
-
-          echo "Cluster not found. Creating cluster '$CLUSTER_NAME' in '$LOCATION'..."
-
-          if [[ "$LOCATION" =~ -[a-z]$ ]]; then
-            gcloud container clusters create "$CLUSTER_NAME" \
-              --zone "$LOCATION" \
-              --num-nodes "$CLUSTER_NODES" \
-              --machine-type "$CLUSTER_MACHINE_TYPE" \
-              --disk-type "$CLUSTER_DISK_TYPE" \
-              --disk-size "$CLUSTER_DISK_SIZE" \
-              --project "$PROJECT_ID"
-          else
-            gcloud container clusters create "$CLUSTER_NAME" \
-              --region "$LOCATION" \
-              --num-nodes "$CLUSTER_NODES" \
-              --machine-type "$CLUSTER_MACHINE_TYPE" \
-              --disk-type "$CLUSTER_DISK_TYPE" \
-              --disk-size "$CLUSTER_DISK_SIZE" \
-              --project "$PROJECT_ID"
-          fi
-
-          echo "Cluster created successfully."
-
-      # ── Build & push images ───────────────────────────────────────────────
       - name: Build & push backend image
         run: |
           docker build -t $REGISTRY/nextstep-api:${{ github.sha }} ./backend
           docker push $REGISTRY/nextstep-api:${{ github.sha }}
           docker tag $REGISTRY/nextstep-api:${{ github.sha }} $REGISTRY/nextstep-api:latest
           docker push $REGISTRY/nextstep-api:latest
+
+  build-frontend:
+    name: Build Frontend Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev
 
       - name: Build & push frontend image
         run: |
@@ -103,44 +169,33 @@ jobs:
           docker tag $REGISTRY/nextstep-web:${{ github.sha }} $REGISTRY/nextstep-web:latest
           docker push $REGISTRY/nextstep-web:latest
 
-      # ── GKE credentials ───────────────────────────────────────────────────
-      - name: Resolve GKE location
-        id: resolve-gke
-        run: |
-          CLUSTER_NAME="${{ secrets.GKE_CLUSTER_NAME }}"
-          INPUT_LOCATION="${{ secrets.GKE_CLUSTER_ZONE }}"
+  deploy:
+    name: Deploy Manifests
+    runs-on: ubuntu-latest
+    needs:
+      - ensure-cluster
+      - build-backend
+      - build-frontend
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
 
-          if gcloud container clusters describe "$CLUSTER_NAME" \
-            --zone "$INPUT_LOCATION" \
-            --project "$PROJECT_ID" >/dev/null 2>&1; then
-            echo "location=$INPUT_LOCATION" >> "$GITHUB_OUTPUT"
-            echo "Resolved GKE location as zone: $INPUT_LOCATION"
-            exit 0
-          fi
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-          if gcloud container clusters describe "$CLUSTER_NAME" \
-            --region "$INPUT_LOCATION" \
-            --project "$PROJECT_ID" >/dev/null 2>&1; then
-            echo "location=$INPUT_LOCATION" >> "$GITHUB_OUTPUT"
-            echo "Resolved GKE location as region: $INPUT_LOCATION"
-            exit 0
-          fi
-
-          echo "Cluster not found with provided secrets."
-          echo "PROJECT_ID=$PROJECT_ID"
-          echo "GKE_CLUSTER_NAME=$CLUSTER_NAME"
-          echo "GKE_CLUSTER_ZONE=$INPUT_LOCATION"
-          echo "Available clusters in project:"
-          gcloud container clusters list --project "$PROJECT_ID" || true
-          exit 1
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
 
       - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v2
         with:
           cluster_name: ${{ secrets.GKE_CLUSTER_NAME }}
-          location: ${{ steps.resolve-gke.outputs.location }}
+          location: ${{ needs.ensure-cluster.outputs.location }}
 
-      # ── Helm: ingress-nginx + cert-manager (idempotent) ──────────────────
       - name: Install ingress-nginx
         run: |
           helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx --force-update
@@ -157,7 +212,6 @@ jobs:
             --set crds.enabled=true \
             --wait --timeout=120s
 
-      # ── Bootstrap cluster resources ───────────────────────────────────────
       - name: Apply namespace
         run: kubectl apply -f k8s/namespace.yaml
 
@@ -168,13 +222,10 @@ jobs:
             --from-literal=GROQ_API_KEY=${{ secrets.GROQ_API_KEY }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      # ── Apply all manifests with substituted image tags ───────────────────
       - name: Substitute image tags and apply manifests
         run: |
-          # train-job.yaml → run via train workflow
-          # cluster-issuer.yaml → applied separately after cert-manager is ready
           for f in k8s/*.yaml; do
-            [[ "$f" == *train-job* ]]     && continue
+            [[ "$f" == *train-job* ]] && continue
             [[ "$f" == *cluster-issuer* ]] && continue
             sed "s|IMAGE_TAG_PLACEHOLDER|${{ github.sha }}|g" "$f" | kubectl apply -f -
           done
@@ -182,7 +233,6 @@ jobs:
       - name: Apply cert-manager ClusterIssuers
         run: kubectl apply -f k8s/cluster-issuer.yaml
 
-      # ── Wait for rollouts ─────────────────────────────────────────────────
       - name: Wait for MLflow rollout
         run: |
           kubectl rollout status deployment/nextstep-mlflow \
@@ -198,13 +248,12 @@ jobs:
           kubectl rollout status deployment/nextstep-web \
             --namespace=nextstep --timeout=60s
 
-      # ── Smoke tests ───────────────────────────────────────────────────────
       - name: Smoke test — health endpoint
         run: |
           sleep 15
           curl -f --retry 6 --retry-delay 10 --retry-connrefused \
             https://$DOMAIN/health
-        continue-on-error: true  # domain/TLS may not be configured yet
+        continue-on-error: true
 
       - name: Smoke test — students endpoint (internal)
         run: |
@@ -213,7 +262,6 @@ jobs:
           kubectl exec -n nextstep $API_POD -c api -- \
             wget -qO- http://localhost:8080/api/students 2>&1 | head -c 200
 
-      # ── Rollback on failure ───────────────────────────────────────────────
       - name: Rollback on failure
         if: failure()
         run: |
