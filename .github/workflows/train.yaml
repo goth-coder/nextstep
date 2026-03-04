@@ -9,123 +9,268 @@ on:
         default: "false"
         type: choice
         options: ["true", "false"]
+      skip_build:
+        description: "Skip Docker build (image already pushed)?"
+        required: false
+        default: "false"
+        type: choice
+        options: ["true", "false"]
   workflow_call:
     inputs:
       promote_to_prod:
-        description: "Promote @staging to @prod after training?"
         required: false
         default: "true"
+        type: string
+      skip_build:
+        required: false
+        default: "false"
         type: string
 
 env:
   PROJECT_ID: nextstep-fiap-project
   REGION: us-central1
   REGISTRY: us-central1-docker.pkg.dev/nextstep-fiap-project/nextstep
+  TRAIN_ZONE: us-central1-a
+  TRAIN_MACHINE: e2-standard-2
+  TRAIN_DISK: "30"
 
 jobs:
-  train:
-    name: Build + ETL + Train + Promote
+  build:
+    name: Build API Image
+    if: inputs.skip_build != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
-
     steps:
       - uses: actions/checkout@v4
-
-      # ── GCP auth ──────────────────────────────────────────────────────────
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker us-central1-docker.pkg.dev
-
-      # ── Build & push API image (training job reuses same image) ───────────
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: gcloud auth configure-docker us-central1-docker.pkg.dev
       - name: Build & push API image
         run: |
           docker build -t $REGISTRY/nextstep-api:${{ github.sha }} ./backend
           docker push $REGISTRY/nextstep-api:${{ github.sha }}
 
-      # ── GKE credentials ───────────────────────────────────────────────────
-      - name: Get GKE credentials
-        uses: google-github-actions/get-gke-credentials@v2
-        with:
-          cluster_name: ${{ secrets.GKE_CLUSTER_NAME }}
-          location: ${{ secrets.GKE_CLUSTER_ZONE }}
+  train:
+    name: Create Cluster + Run Training
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: always() && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      cluster_name: ${{ steps.cluster.outputs.cluster_name }}
+      cluster_zone: ${{ steps.cluster.outputs.cluster_zone }}
+    steps:
+      - uses: actions/checkout@v4
 
-      # ── Submit training job ───────────────────────────────────────────────
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve MLflow URL
+        id: mlflow
+        run: |
+          URL=$(gcloud run services describe nextstep-mlflow \
+            --region "$REGION" --project "$PROJECT_ID" \
+            --format='value(status.url)' 2>/dev/null || echo "")
+          if [[ -z "$URL" ]]; then
+            echo "::error::MLflow Cloud Run service not found. Run the Deploy workflow first."
+            exit 1
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "MLflow URL: $URL"
+
+      - name: Create ephemeral training cluster
+        id: cluster
+        run: |
+          CLUSTER_NAME="nextstep-train-${{ github.run_id }}"
+          echo "Creating cluster $CLUSTER_NAME in $TRAIN_ZONE..."
+          gcloud container clusters create "$CLUSTER_NAME" \
+            --zone "$TRAIN_ZONE" \
+            --num-nodes 1 \
+            --machine-type "$TRAIN_MACHINE" \
+            --disk-type pd-standard \
+            --disk-size "$TRAIN_DISK" \
+            --project "$PROJECT_ID" \
+            --no-enable-autoupgrade \
+            --quiet
+          echo "cluster_name=$CLUSTER_NAME" >> "$GITHUB_OUTPUT"
+          echo "cluster_zone=$TRAIN_ZONE" >> "$GITHUB_OUTPUT"
+          echo "✅ Cluster $CLUSTER_NAME created"
+
+      - name: Get cluster credentials
+        run: |
+          gcloud container clusters get-credentials "${{ steps.cluster.outputs.cluster_name }}" \
+            --zone "${{ steps.cluster.outputs.cluster_zone }}" \
+            --project "$PROJECT_ID"
+
+      - name: Bootstrap namespace and secrets
+        run: |
+          kubectl create namespace nextstep --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic nextstep-secrets \
+            --namespace=nextstep \
+            --from-literal=groq-api-key=${{ secrets.GROQ_API_KEY }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Delete previous training job (if any)
         run: kubectl delete job nextstep-train -n nextstep 2>/dev/null || true
 
-      - name: Apply training job
+      - name: Submit training job
         run: |
           sed "s|IMAGE_TAG_PLACEHOLDER|${{ github.sha }}|g" k8s/train-job.yaml \
+            | sed "s|http://nextstep-mlflow-service:5000|${{ steps.mlflow.outputs.url }}|g" \
             | kubectl apply -f -
+          echo "✅ Training job submitted"
 
-      - name: Wait for training job to complete
+      - name: Wait for pod to be scheduled
         run: |
-          kubectl wait job/nextstep-train \
-            --for=condition=Complete \
+          echo "⏳ Waiting for training pod..."
+          kubectl wait pod \
+            -l job-name=nextstep-train \
+            --for=condition=Ready \
             --namespace=nextstep \
-            --timeout=900s
+            --timeout=120s || true
+          kubectl get pods -n nextstep -l job-name=nextstep-train -o wide || true
 
       - name: Stream training logs
-        if: always()
         run: |
+          echo "📡 Streaming training logs (timeout 30min)..."
           kubectl logs -n nextstep \
             -l job-name=nextstep-train \
-            --tail=60 2>/dev/null || true
+            --follow --timestamps --prefix 2>/dev/null &
+          LOG_PID=$!
 
-      # ── Promote model aliases ─────────────────────────────────────────────
+          for i in $(seq 1 180); do
+            sleep 10
+            STATUS=$(kubectl get job nextstep-train -n nextstep \
+              -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' 2>/dev/null || echo "")
+            FAILED=$(kubectl get job nextstep-train -n nextstep \
+              -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || echo "")
+
+            if [[ "$STATUS" == "True" ]]; then
+              echo "✅ Training completed (~$((i*10))s elapsed)"
+              kill $LOG_PID 2>/dev/null || true
+              exit 0
+            fi
+            if [[ "$FAILED" == "True" ]]; then
+              echo "❌ Training job failed (~$((i*10))s elapsed)"
+              kill $LOG_PID 2>/dev/null || true
+              exit 1
+            fi
+            if (( i % 5 == 0 )); then
+              echo "⏳ Still running... (~$((i*10))s elapsed)"
+              kubectl get pods -n nextstep -l job-name=nextstep-train --no-headers 2>/dev/null || true
+            fi
+          done
+
+          kill $LOG_PID 2>/dev/null || true
+          echo "❌ Timeout after 30min"
+          exit 1
+
+      - name: Diagnose failure
+        if: failure()
+        run: |
+          echo "=== Job ==="
+          kubectl describe job nextstep-train -n nextstep || true
+          echo "=== Pod ==="
+          kubectl describe pods -n nextstep -l job-name=nextstep-train || true
+          echo "=== Events ==="
+          kubectl get events -n nextstep --sort-by='.lastTimestamp' | tail -30 || true
+          echo "=== Logs (last 100 lines) ==="
+          kubectl logs -n nextstep -l job-name=nextstep-train --tail=100 --timestamps 2>/dev/null || true
+
+  promote:
+    name: Promote Model in MLflow
+    runs-on: ubuntu-latest
+    needs: [train]
+    if: success()
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get MLflow URL
+        id: mlflow
+        run: |
+          URL=$(gcloud run services describe nextstep-mlflow \
+            --region "$REGION" --project "$PROJECT_ID" \
+            --format='value(status.url)')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
       - name: Install mlflow client
         run: pip install --quiet mlflow
 
-      - name: Port-forward MLflow
-        run: |
-          kubectl port-forward -n nextstep \
-            svc/nextstep-mlflow-service 5000:5000 &
-          echo "PF_PID=$!" >> $GITHUB_ENV
-          sleep 5
-
       - name: Promote latest version to @staging
+        env:
+          MLFLOW_URL: ${{ steps.mlflow.outputs.url }}
         run: |
           python3 - <<'EOF'
-          import mlflow, os, sys
-          client = mlflow.MlflowClient("http://localhost:5000")
+          import mlflow, sys, os
+          client = mlflow.MlflowClient(os.environ["MLFLOW_URL"])
           versions = client.search_model_versions("name='nextstep-lstm'")
           if not versions:
               print("No model versions found — training may have failed")
               sys.exit(1)
           latest = max(versions, key=lambda v: int(v.version))
           client.set_registered_model_alias("nextstep-lstm", "staging", latest.version)
-          print(f"✅ Version {latest.version} promoted to @staging")
-          print(f"   run_id: {latest.run_id}")
-          print(f"   source: {latest.source}")
+          print(f"✅ Version {latest.version} → @staging")
           EOF
 
       - name: Promote @staging to @prod
-        if: ${{ inputs.promote_to_prod == 'true' }}
+        if: inputs.promote_to_prod == 'true'
+        env:
+          MLFLOW_URL: ${{ steps.mlflow.outputs.url }}
         run: |
           python3 - <<'EOF'
-          import mlflow
-          client = mlflow.MlflowClient("http://localhost:5000")
+          import mlflow, os
+          client = mlflow.MlflowClient(os.environ["MLFLOW_URL"])
           mv = client.get_model_version_by_alias("nextstep-lstm", "staging")
           client.set_registered_model_alias("nextstep-lstm", "prod", mv.version)
-          print(f"✅ Version {mv.version} promoted to @prod")
+          print(f"✅ Version {mv.version} → @prod")
           EOF
 
-      - name: Kill port-forward
-        if: always()
-        run: kill $PF_PID 2>/dev/null || true
-
-      # ── Restart API to load new model ─────────────────────────────────────
-      - name: Restart API deployment (load new @prod model)
-        if: ${{ inputs.promote_to_prod == 'true' }}
+      - name: Restart API to load new model
+        if: inputs.promote_to_prod == 'true'
         run: |
-          kubectl rollout restart deployment/nextstep-api -n nextstep
-          kubectl rollout status deployment/nextstep-api -n nextstep --timeout=180s
+          gcloud run services update nextstep-api \
+            --region "$REGION" \
+            --project "$PROJECT_ID" \
+            --update-env-vars "CACHE_BUST=${{ github.run_id }}" \
+            --quiet
+          echo "✅ API restarted — will load new @prod model on startup"
+
+  cleanup:
+    name: Delete Ephemeral Cluster
+    runs-on: ubuntu-latest
+    needs: [train]
+    if: always() && needs.train.outputs.cluster_name != ''
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Delete training cluster
+        run: |
+          echo "🗑️ Deleting ${{ needs.train.outputs.cluster_name }}..."
+          gcloud container clusters delete "${{ needs.train.outputs.cluster_name }}" \
+            --zone "${{ needs.train.outputs.cluster_zone }}" \
+            --project "$PROJECT_ID" \
+            --quiet
+          echo "✅ Cluster deleted — billing stopped"

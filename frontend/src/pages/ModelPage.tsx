@@ -5,7 +5,7 @@ import { getModelDrift, getModelInfo } from '../services/api'
 import { colors, radius, shadows, typography } from '../styles/theme'
 import type { DriftInfo, ModelInfo } from '../types/student'
 
-type Status = 'loading' | 'success' | 'error'
+type Status = 'loading' | 'success' | 'error' | 'no-model'
 
 // Human-readable labels for params
 const PARAM_LABELS: Record<string, string> = {
@@ -90,9 +90,14 @@ export default function ModelPage() {
     try {
       setModel(await getModelInfo())
       setStatus('success')
-    } catch {
-      setErrorMsg('Could not load model information from MLflow.')
-      setStatus('error')
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 503 || status === 503) {
+        setStatus('no-model')
+      } else {
+        setErrorMsg('Could not load model information from MLflow.')
+        setStatus('error')
+      }
     }
     // Drift is non-blocking — fails silently
     try {
@@ -123,6 +128,31 @@ export default function ModelPage() {
           style={{ textAlign: 'center', padding: '5rem', color: colors.gray500 }}>
           <div style={{ fontSize: '2rem', marginBottom: '0.75rem' }}>⏳</div>
           Loading model info…
+        </div>
+      )}
+
+      {status === 'no-model' && (
+        <div style={{
+          background: '#fff8e1', border: '1px solid #f59e0b', borderRadius: radius.lg,
+          padding: '2rem', textAlign: 'center', maxWidth: '600px', margin: '2rem auto',
+        }}>
+          <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>🏋️</div>
+          <h2 style={{ fontSize: typography.sizes.lg, fontWeight: 700, color: '#92400e', marginBottom: '0.5rem' }}>
+            Model not available yet
+          </h2>
+          <p style={{ color: '#78350f', fontSize: typography.sizes.sm, marginBottom: '1.25rem' }}>
+            No trained model is registered in MLflow. The system will work normally once
+            the Train workflow completes and promotes a model to <code>@prod</code>.
+          </p>
+          <button
+            onClick={fetch}
+            style={{
+              background: '#f59e0b', color: '#fff', border: 'none', borderRadius: radius.md,
+              padding: '0.5rem 1.25rem', fontWeight: 600, cursor: 'pointer', fontSize: typography.sizes.sm,
+            }}
+          >
+            Check again
+          </button>
         </div>
       )}
 

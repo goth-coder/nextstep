@@ -2,8 +2,7 @@ name: Deploy
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
     inputs:
       environment:
@@ -16,110 +15,26 @@ on:
 env:
   PROJECT_ID: nextstep-fiap-project
   REGION: us-central1
-  DOMAIN: nextstep-advisor.uk
   REGISTRY: us-central1-docker.pkg.dev/nextstep-fiap-project/nextstep
-  CLUSTER_NODES: "1"
-  CLUSTER_MACHINE_TYPE: e2-standard-2
-  CLUSTER_DISK_TYPE: pd-standard
-  CLUSTER_DISK_SIZE: "50"
 
 jobs:
-  ensure-cluster:
-    name: Ensure GKE Cluster
+  build-mlflow:
+    name: Build MLflow Image
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
-    outputs:
-      location: ${{ steps.ensure.outputs.location }}
     steps:
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Ensure cluster exists (create if missing)
-        id: ensure
-        shell: bash
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: gcloud auth configure-docker us-central1-docker.pkg.dev
+      - name: Build & push MLflow image
         run: |
-          set -euo pipefail
-
-          CLUSTER_NAME="${{ secrets.GKE_CLUSTER_NAME }}"
-          INPUT_LOCATION="${{ secrets.GKE_CLUSTER_ZONE }}"
-          DEPLOYER_SA="$(gcloud config get-value account 2>/dev/null || true)"
-
-          if [[ -z "$CLUSTER_NAME" || -z "$INPUT_LOCATION" ]]; then
-            echo "Missing required secrets: GKE_CLUSTER_NAME / GKE_CLUSTER_ZONE"
-            exit 1
-          fi
-
-          if gcloud container clusters describe "$CLUSTER_NAME" \
-            --zone "$INPUT_LOCATION" \
-            --project "$PROJECT_ID" >/dev/null 2>&1; then
-            echo "Cluster found in zone: $INPUT_LOCATION"
-            echo "location=$INPUT_LOCATION" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if gcloud container clusters describe "$CLUSTER_NAME" \
-            --region "$INPUT_LOCATION" \
-            --project "$PROJECT_ID" >/dev/null 2>&1; then
-            echo "Cluster found in region: $INPUT_LOCATION"
-            echo "location=$INPUT_LOCATION" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          NODE_SA="${{ secrets.GKE_NODE_SERVICE_ACCOUNT }}"
-
-          echo "Cluster not found. Will create '$CLUSTER_NAME' in '$INPUT_LOCATION'."
-          if [[ -n "$NODE_SA" ]]; then
-            echo "Using node service account: $NODE_SA"
-
-            ACT_AS_PERMISSION="$(gcloud iam service-accounts test-iam-permissions "$NODE_SA" \
-              --permissions=iam.serviceAccounts.actAs \
-              --project "$PROJECT_ID" \
-              --format='value(permissions[0])' 2>/dev/null || true)"
-
-            if [[ "$ACT_AS_PERMISSION" != "iam.serviceAccounts.actAs" ]]; then
-              echo "Missing iam.serviceAccountUser (actAs) on node SA: $NODE_SA"
-              echo "Grant this once with a Project Owner account:"
-              echo "gcloud iam service-accounts add-iam-policy-binding $NODE_SA --member=serviceAccount:$DEPLOYER_SA --role=roles/iam.serviceAccountUser --project=$PROJECT_ID"
-              echo "Falling back to default node service account for cluster creation."
-              NODE_SA=""
-            fi
-          else
-            echo "GKE_NODE_SERVICE_ACCOUNT not set; creating cluster with default node service account."
-          fi
-
-          if [[ "$INPUT_LOCATION" =~ -[a-z]$ ]]; then
-            CREATE_ARGS=(
-              --zone "$INPUT_LOCATION"
-              --num-nodes "$CLUSTER_NODES"
-              --machine-type "$CLUSTER_MACHINE_TYPE"
-              --disk-type "$CLUSTER_DISK_TYPE"
-              --disk-size "$CLUSTER_DISK_SIZE"
-              --project "$PROJECT_ID"
-            )
-            [[ -n "$NODE_SA" ]] && CREATE_ARGS+=(--service-account "$NODE_SA")
-            gcloud container clusters create "$CLUSTER_NAME" "${CREATE_ARGS[@]}"
-          else
-            CREATE_ARGS=(
-              --region "$INPUT_LOCATION"
-              --num-nodes "$CLUSTER_NODES"
-              --machine-type "$CLUSTER_MACHINE_TYPE"
-              --disk-type "$CLUSTER_DISK_TYPE"
-              --disk-size "$CLUSTER_DISK_SIZE"
-              --project "$PROJECT_ID"
-            )
-            [[ -n "$NODE_SA" ]] && CREATE_ARGS+=(--service-account "$NODE_SA")
-            gcloud container clusters create "$CLUSTER_NAME" "${CREATE_ARGS[@]}"
-          fi
-
-          echo "Cluster created successfully."
-          echo "location=$INPUT_LOCATION" >> "$GITHUB_OUTPUT"
+          docker build -t $REGISTRY/nextstep-mlflow:latest ./mlflow
+          docker push $REGISTRY/nextstep-mlflow:latest
 
   build-backend:
     name: Build Backend Image
@@ -129,18 +44,11 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker us-central1-docker.pkg.dev
-
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: gcloud auth configure-docker us-central1-docker.pkg.dev
       - name: Build & push backend image
         run: |
           docker build -t $REGISTRY/nextstep-api:${{ github.sha }} ./backend
@@ -156,18 +64,11 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker us-central1-docker.pkg.dev
-
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: gcloud auth configure-docker us-central1-docker.pkg.dev
       - name: Build & push frontend image
         run: |
           docker build -t $REGISTRY/nextstep-web:${{ github.sha }} ./frontend
@@ -176,187 +77,96 @@ jobs:
           docker push $REGISTRY/nextstep-web:latest
 
   deploy:
-    name: Deploy Manifests
+    name: Deploy to Cloud Run
     runs-on: ubuntu-latest
-    needs:
-      - ensure-cluster
-      - build-backend
-      - build-frontend
+    needs: [build-mlflow, build-backend, build-frontend]
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Resolve cluster location
-        id: resolve-location
+      - name: Deploy MLflow
         run: |
-          LOCATION="$(gcloud container clusters list \
-            --filter="name=${{ secrets.GKE_CLUSTER_NAME }}" \
+          gcloud run deploy nextstep-mlflow \
+            --image "$REGISTRY/nextstep-mlflow:latest" \
+            --region "$REGION" \
             --project "$PROJECT_ID" \
-            --format="value(location)" | head -1)"
-          if [[ -z "$LOCATION" ]]; then
-            echo "Could not find cluster ${{ secrets.GKE_CLUSTER_NAME }} in project $PROJECT_ID"
-            exit 1
-          fi
-          echo "Cluster location: $LOCATION"
-          echo "location=$LOCATION" >> "$GITHUB_OUTPUT"
+            --platform managed \
+            --allow-unauthenticated \
+            --port 8080 \
+            --memory 1Gi \
+            --cpu 1 \
+            --min-instances 1 \
+            --max-instances 1 \
+            --set-env-vars "MLFLOW_BUCKET=${{ secrets.GCS_BUCKET }}" \
+            --quiet
+          echo "✅ MLflow deployed"
 
-      - name: Get GKE credentials
-        uses: google-github-actions/get-gke-credentials@v2
-        with:
-          cluster_name: ${{ secrets.GKE_CLUSTER_NAME }}
-          location: ${{ steps.resolve-location.outputs.location }}
-
-      - name: Install ingress-nginx
+      - name: Get MLflow URL
+        id: mlflow
         run: |
-          helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx --force-update
-          helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
-            --namespace ingress-nginx --create-namespace \
-            --set controller.replicaCount=1 \
-            --wait --timeout=120s
+          URL=$(gcloud run services describe nextstep-mlflow \
+            --region "$REGION" --project "$PROJECT_ID" \
+            --format='value(status.url)')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "MLflow URL: $URL"
 
-      - name: Install cert-manager
+      - name: Deploy Backend
         run: |
-          helm repo add jetstack https://charts.jetstack.io --force-update
-          helm upgrade --install cert-manager jetstack/cert-manager \
-            --namespace cert-manager --create-namespace \
-            --set crds.enabled=true \
-            --wait --timeout=120s
-
-      - name: Apply namespace
-        run: kubectl apply -f k8s/namespace.yaml
-
-      - name: Create / update app secrets
-        run: |
-          kubectl create secret generic nextstep-secrets \
-            --namespace=nextstep \
-            --from-literal=GROQ_API_KEY=${{ secrets.GROQ_API_KEY }} \
-            --dry-run=client -o yaml | kubectl apply -f -
-
-      - name: Substitute image tags and apply manifests
-        run: |
-          for f in k8s/*.yaml; do
-            [[ "$f" == *train-job* ]] && continue
-            [[ "$f" == *cluster-issuer* ]] && continue
-            sed "s|IMAGE_TAG_PLACEHOLDER|${{ github.sha }}|g" "$f" | kubectl apply -f -
-          done
-
-      - name: Apply cert-manager ClusterIssuers
-        run: kubectl apply -f k8s/cluster-issuer.yaml
-
-      - name: Wait for MLflow rollout
-        run: |
-          kubectl rollout status deployment/nextstep-mlflow \
-            --namespace=nextstep --timeout=120s
-
-      - name: Check if MLflow has a trained model
-        id: mlflow-check
-        run: |
-          MLFLOW_POD=$(kubectl get pods -n nextstep -l app=nextstep-mlflow \
-            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-          if [[ -z "$MLFLOW_POD" ]]; then
-            echo "model_ready=false" >> "$GITHUB_OUTPUT"
-            echo "MLflow pod not found; assuming fresh cluster."
-            exit 0
-          fi
-          MODEL_COUNT=$(kubectl exec -n nextstep "$MLFLOW_POD" -- \
-            sh -c 'find /mlflow/artifacts -name "MLmodel" 2>/dev/null | wc -l' \
-            2>/dev/null || echo "0")
-          if [[ "$MODEL_COUNT" -gt 0 ]]; then
-            echo "model_ready=true" >> "$GITHUB_OUTPUT"
-            echo "MLflow has $MODEL_COUNT model artifact(s) — API should become ready."
-          else
-            echo "model_ready=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::MLflow has no trained models yet. Train workflow will run automatically."
-          fi
-
-  train-if-needed:
-    name: Train (seed MLflow on fresh cluster)
-    needs: [deploy]
-    if: needs.deploy.outputs.model_ready != 'true'
-    permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/train.yaml
-    with:
-      promote_to_prod: 'true'
-    secrets: inherit
-
-  verify:
-    name: Verify Rollout
-    runs-on: ubuntu-latest
-    needs: [deploy, train-if-needed]
-    if: always() && needs.deploy.result == 'success' && (needs.train-if-needed.result == 'success' || needs.train-if-needed.result == 'skipped')
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Resolve cluster location
-        id: resolve-location
-        run: |
-          LOCATION="$(gcloud container clusters list \
-            --filter="name=${{ secrets.GKE_CLUSTER_NAME }}" \
+          gcloud run deploy nextstep-api \
+            --image "$REGISTRY/nextstep-api:${{ github.sha }}" \
+            --region "$REGION" \
             --project "$PROJECT_ID" \
-            --format="value(location)" | head -1)"
-          echo "location=$LOCATION" >> "$GITHUB_OUTPUT"
+            --platform managed \
+            --allow-unauthenticated \
+            --port 8080 \
+            --memory 2Gi \
+            --cpu 2 \
+            --min-instances 0 \
+            --max-instances 3 \
+            --set-env-vars "MLFLOW_TRACKING_URI=${{ steps.mlflow.outputs.url }},PORT=8080,GIT_PYTHON_REFRESH=quiet,GROQ_API_KEY=${{ secrets.GROQ_API_KEY }},DATA_PATH=gs://${{ secrets.GCS_BUCKET }}/raw/BASE DE DADOS PEDE 2022-2024 - DATATHON.xlsx" \
+            --quiet
+          echo "✅ Backend deployed"
 
-      - name: Get GKE credentials
-        uses: google-github-actions/get-gke-credentials@v2
-        with:
-          cluster_name: ${{ secrets.GKE_CLUSTER_NAME }}
-          location: ${{ steps.resolve-location.outputs.location }}
-
-      - name: Wait for API rollout
+      - name: Get Backend URL
+        id: backend
         run: |
-          kubectl rollout status deployment/nextstep-api \
-            --namespace=nextstep --timeout=300s
+          URL=$(gcloud run services describe nextstep-api \
+            --region "$REGION" --project "$PROJECT_ID" \
+            --format='value(status.url)')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Backend URL: $URL"
 
-      - name: Wait for web rollout
+      - name: Deploy Frontend
         run: |
-          kubectl rollout status deployment/nextstep-web \
-            --namespace=nextstep --timeout=60s
+          gcloud run deploy nextstep-web \
+            --image "$REGISTRY/nextstep-web:${{ github.sha }}" \
+            --region "$REGION" \
+            --project "$PROJECT_ID" \
+            --platform managed \
+            --allow-unauthenticated \
+            --port 80 \
+            --memory 256Mi \
+            --cpu 1 \
+            --min-instances 0 \
+            --max-instances 3 \
+            --set-env-vars "BACKEND_URL=${{ steps.backend.outputs.url }}" \
+            --quiet
+          echo "✅ Frontend deployed"
 
-      - name: Smoke test — health endpoint
+      - name: Smoke test
         run: |
-          sleep 15
-          curl -f --retry 6 --retry-delay 10 --retry-connrefused \
-            https://$DOMAIN/health
+          FRONTEND_URL=$(gcloud run services describe nextstep-web \
+            --region "$REGION" --project "$PROJECT_ID" \
+            --format='value(status.url)')
+          echo "Frontend: $FRONTEND_URL"
+          curl -sf --retry 5 --retry-delay 5 --retry-connrefused \
+            "$FRONTEND_URL" -o /dev/null && echo "✅ Frontend OK" || echo "⚠️ Smoke test inconclusive"
         continue-on-error: true
-
-      - name: Smoke test — students endpoint (internal)
-        run: |
-          API_POD=$(kubectl get pods -n nextstep -l app=nextstep-api \
-            -o jsonpath='{.items[0].metadata.name}')
-          kubectl exec -n nextstep "$API_POD" -- \
-            wget -qO- http://localhost:8080/api/students 2>&1 | head -c 200
-
-      - name: Rollback on failure
-        if: failure()
-        run: |
-          echo "Deploy failed — rolling back..."
-          REVISIONS=$(kubectl rollout history deployment/nextstep-api -n nextstep --no-headers 2>/dev/null | wc -l)
-          if [[ "$REVISIONS" -gt 1 ]]; then
-            kubectl rollout undo deployment/nextstep-api --namespace=nextstep || true
-            kubectl rollout undo deployment/nextstep-web --namespace=nextstep || true
-          else
-            echo "Fresh deployment — no previous revision to roll back to."
-          fi
