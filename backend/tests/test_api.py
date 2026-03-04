@@ -18,11 +18,13 @@ _IND_LOW  = Indicators(iaa=9.0, ieg=8.8, ips=7.7, ida=9.1, ipv=9.2, ipp=8.5, ind
 REC_HIGH = StudentRecord.build(
     student_id=1, ra="RA-1", display_name="ALUNO-1",
     phase="Fase 2", phase_num=2, class_group="G", year=2024,
+    gender=0, age=13,
     risk_score=0.85, indicators=_IND_HIGH,
 )
 REC_LOW = StudentRecord.build(
     student_id=2, ra="RA-2", display_name="ALUNO-2",
     phase="Fase 3", phase_num=3, class_group="F", year=2024,
+    gender=1, age=14,
     risk_score=0.15, indicators=_IND_LOW,
 )
 
@@ -33,6 +35,9 @@ def _make_mock_cache(ready: bool = True, records=None):
     mock_cache.get_all.return_value = records if records is not None else [REC_HIGH, REC_LOW]
     mock_cache.get_by_id.side_effect = lambda sid: {1: REC_HIGH, 2: REC_LOW}.get(int(sid))
     mock_cache.count.return_value = len(records) if records is not None else 2
+    mock_cache.attempts.return_value = 1
+    mock_cache.last_attempt_at.return_value = "2026-03-04T00:00:00+00:00"
+    mock_cache.last_error.return_value = None if ready else "startup load failed"
     return mock_cache
 
 
@@ -80,6 +85,28 @@ def test_health_when_cache_not_ready():
     resp = flask_app.test_client().get("/health")
     assert resp.status_code == 200
     data = resp.get_json()
+    assert data["model_loaded"] is False
+
+
+def test_readyz_returns_200_when_cache_ready(client):
+    resp = client.get("/readyz")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["status"] == "ready"
+    assert data["model_loaded"] is True
+
+
+def test_readyz_returns_503_when_cache_not_ready():
+    with patch("app.services.cache.StudentCacheService.load"):
+        from app import create_app
+        flask_app = create_app()
+    flask_app.extensions["cache"] = _make_mock_cache(ready=False, records=[])
+    flask_app.extensions["llm"] = _make_mock_llm()
+    flask_app.config["TESTING"] = True
+    resp = flask_app.test_client().get("/readyz")
+    assert resp.status_code == 503
+    data = resp.get_json()
+    assert data["status"] == "not-ready"
     assert data["model_loaded"] is False
 
 

@@ -43,9 +43,12 @@ def create_app() -> Flask:
     from app.services.llm import LLMService
     from app.services.prediction import PredictionService
 
+    tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
+    log.info("Starting API with MLFLOW_TRACKING_URI=%s", tracking_uri)
+
     cache_svc = StudentCacheService(
         PredictionService(
-            model_repo=MLflowModelRepository(),
+            model_repo=MLflowModelRepository(tracking_uri=tracking_uri),
             data_repo=DiskStudentDataRepository(),
         )
     )
@@ -56,7 +59,7 @@ def create_app() -> Flask:
 
     with app.app_context():
         try:
-            cache_svc.load()
+            cache_svc.load_with_retry()
         except Exception as exc:  # noqa: BLE001
             log.error("Prediction cache failed to load: %s", exc, exc_info=True)
 

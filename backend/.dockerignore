@@ -13,6 +13,8 @@ venv/
 # ── Dev / IDE ─────────────────────────────────────────────────────────────────
 .git/
 .gitignore
+.dockerignore
+Dockerfile*
 .vscode/
 .idea/
 *.swp
@@ -28,7 +30,8 @@ Thumbs.db
 *.key
 
 # ── Raw data & large artifacts (mounted as volumes at runtime) ────────────────
-# data/raw/ intentionally included — xlsx is <1MB and needed for training job
+# data/raw/ excluded — xlsx is fetched from GCS at runtime via DATA_PATH env var
+data/raw/
 data/processed/
 *.npy
 *.pkl
@@ -46,3 +49,4 @@ tests/
 # ── Logs ──────────────────────────────────────────────────────────────────────
 *.log
 logs/
+coverage/

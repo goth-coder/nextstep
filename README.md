@@ -206,6 +206,24 @@ Limitado a 60 requisições/hora por IP. IPP não entra no modelo (display-only)
 
 ---
 
+## Runner unificado (docker)
+
+O projeto inclui um runner Docker-only na raiz:
+
+```bash
+# sobe stack com compose
+python app.py
+
+# modo docker com build limpo (sem cache)
+python app.py --no-cache
+```
+
+Flags úteis:
+- `--dry-run`: imprime os comandos sem executar
+- `--detach`: usa `docker compose up -d --build`
+
+---
+
 ## Pipeline de ML
 
 | Etapa | Detalhe |

@@ -3,6 +3,7 @@ Flask Blueprint: REST API routes.
 
 Endpoints:
     GET  /health
+    GET  /readyz
     GET  /api/students
     GET  /api/students/<int:student_id>
     GET  /api/students/<int:student_id>/advice
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import datetime, timezone
 
 import mlflow
@@ -30,14 +32,42 @@ routes_bp = Blueprint("routes", __name__)
 @routes_bp.get("/health")
 def health():
     cache = current_app.extensions["cache"]
-    return jsonify({"status": "ok", "model_loaded": cache.is_ready(), "student_count": cache.count()}), 200
+    payload = {
+        "status": "ok",
+        "model_loaded": cache.is_ready(),
+        "student_count": cache.count(),
+        "cache_attempts": cache.attempts(),
+        "last_cache_attempt_at": cache.last_attempt_at(),
+    }
+    if not cache.is_ready() and cache.last_error():
+        payload["cache_error"] = cache.last_error()
+    return jsonify(payload), 200
+
+
+@routes_bp.get("/readyz")
+def readyz():
+    cache = current_app.extensions["cache"]
+    if not cache.is_ready():
+        detail = cache.last_error() or "Model not yet loaded"
+        payload = {
+            "status": "not-ready",
+            "model_loaded": False,
+            "student_count": cache.count(),
+            "cache_attempts": cache.attempts(),
+            "last_cache_attempt_at": cache.last_attempt_at(),
+            "cache_error": detail,
+        }
+        return jsonify(payload), 503
+
+    return jsonify({"status": "ready", "model_loaded": True, "student_count": cache.count()}), 200
 
 
 @routes_bp.get("/api/students")
 def list_students():
     cache = current_app.extensions["cache"]
     if not cache.is_ready():
-        return jsonify({"error": "Model not yet loaded"}), 503
+        detail = cache.last_error() or "Model not yet loaded"
+        return jsonify({"error": "Model not yet loaded", "detail": detail}), 503
     records = sorted(cache.get_all(), key=lambda r: (-r.risk_score, r.display_name))
     students = [
         {
@@ -57,7 +87,8 @@ def list_students():
 def get_student(student_id: int):
     cache = current_app.extensions["cache"]
     if not cache.is_ready():
-        return jsonify({"error": "Model not yet loaded"}), 503
+        detail = cache.last_error() or "Model not yet loaded"
+        return jsonify({"error": "Model not yet loaded", "detail": detail}), 503
     record = cache.get_by_id(student_id)
     if record is None:
         return jsonify({"error": "Student not found"}), 404
@@ -92,7 +123,8 @@ def get_student(student_id: int):
 def get_advice(student_id: int):
     cache = current_app.extensions["cache"]
     if not cache.is_ready():
-        return jsonify({"error": "Model not yet loaded"}), 503
+        detail = cache.last_error() or "Model not yet loaded"
+        return jsonify({"error": "Model not yet loaded", "detail": detail}), 503
     record = cache.get_by_id(student_id)
     if record is None:
         return jsonify({"error": "Student not found"}), 404
@@ -214,7 +246,8 @@ def get_model_drift():
 
     cache = current_app.extensions["cache"]
     if not cache.is_ready():
-        return jsonify({"error": "Model not yet loaded"}), 503
+        detail = cache.last_error() or "Model not yet loaded"
+        return jsonify({"error": "Model not yet loaded", "detail": detail}), 503
 
     scores = [r.risk_score for r in cache.get_all()]
     n = len(scores)
@@ -277,9 +310,24 @@ def get_model_drift():
 @routes_bp.get("/api/model")
 def get_model_info():
     try:
-        tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
-        mlflow.set_tracking_uri(tracking_uri)
-        client = mlflow.tracking.MlflowClient()
+        tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
+        max_attempts = max(1, int(os.getenv("MODEL_INFO_MAX_ATTEMPTS", "4")))
+        base_delay = max(0.0, float(os.getenv("MODEL_INFO_RETRY_BASE_SECONDS", "1")))
+
+        client = None
+        last_error: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                mlflow.set_tracking_uri(tracking_uri)
+                client = mlflow.tracking.MlflowClient()
+                break
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                log.warning("MLflow client init failed (%d/%d): %s", attempt, max_attempts, exc)
+                if attempt < max_attempts:
+                    time.sleep(base_delay * (2 ** (attempt - 1)))
+        if client is None and last_error is not None:
+            raise last_error
 
         # Find the @prod alias version (alias-based promotion, not legacy stages)
         model_name = os.getenv("MLFLOW_MODEL_NAME", "nextstep-lstm")
