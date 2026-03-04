@@ -196,11 +196,25 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Resolve cluster location
+        id: resolve-location
+        run: |
+          LOCATION="$(gcloud container clusters list \
+            --filter="name=${{ secrets.GKE_CLUSTER_NAME }}" \
+            --project "$PROJECT_ID" \
+            --format="value(location)" | head -1)"
+          if [[ -z "$LOCATION" ]]; then
+            echo "Could not find cluster ${{ secrets.GKE_CLUSTER_NAME }} in project $PROJECT_ID"
+            exit 1
+          fi
+          echo "Cluster location: $LOCATION"
+          echo "location=$LOCATION" >> "$GITHUB_OUTPUT"
+
       - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v2
         with:
           cluster_name: ${{ secrets.GKE_CLUSTER_NAME }}
-          location: ${{ needs.ensure-cluster.outputs.location }}
+          location: ${{ steps.resolve-location.outputs.location }}
 
       - name: Install ingress-nginx
         run: |
