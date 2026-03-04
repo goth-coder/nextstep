@@ -92,13 +92,6 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Enable required GCP APIs
-        run: |
-          gcloud services enable run.googleapis.com \
-            artifactregistry.googleapis.com \
-            --project "$PROJECT_ID" --quiet
-          echo "✅ APIs enabled"
-
       - name: Deploy MLflow
         run: |
           gcloud run deploy nextstep-mlflow \
