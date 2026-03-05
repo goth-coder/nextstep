@@ -16,6 +16,7 @@ env:
   PROJECT_ID: nextstep-fiap-project
   REGION: us-central1
   REGISTRY: us-central1-docker.pkg.dev/nextstep-fiap-project/nextstep
+  FRONTEND_DOMAIN: nextstep-advisor.uk
 
 jobs:
   build-mlflow:
@@ -160,6 +161,27 @@ jobs:
             --set-env-vars "BACKEND_URL=${{ steps.backend.outputs.url }}" \
             --quiet
           echo "✅ Frontend deployed"
+
+      - name: Map custom domain
+        continue-on-error: true
+        run: |
+          if gcloud beta run domain-mappings describe "$FRONTEND_DOMAIN" \
+            --region "$REGION" --project "$PROJECT_ID" --quiet 2>/dev/null; then
+            echo "✅ Domain mapping $FRONTEND_DOMAIN already exists"
+          else
+            gcloud beta run domain-mappings create \
+              --service nextstep-web \
+              --domain "$FRONTEND_DOMAIN" \
+              --region "$REGION" \
+              --project "$PROJECT_ID" \
+              --quiet
+            echo "✅ Domain mapping $FRONTEND_DOMAIN created"
+          fi
+          # Show DNS records required (for reference)
+          gcloud beta run domain-mappings describe "$FRONTEND_DOMAIN" \
+            --region "$REGION" --project "$PROJECT_ID" \
+            --format='table(status.resourceRecords[].type, status.resourceRecords[].name, status.resourceRecords[].rrdata)' \
+            2>/dev/null || true
 
       - name: Smoke test
         run: |
