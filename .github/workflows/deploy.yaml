@@ -142,8 +142,10 @@ jobs:
           URL=$(gcloud run services describe nextstep-api \
             --region "$REGION" --project "$PROJECT_ID" \
             --format='value(status.url)')
+          HOST=$(echo "$URL" | sed 's|https://||')
           echo "url=$URL" >> "$GITHUB_OUTPUT"
-          echo "Backend URL: $URL"
+          echo "host=$HOST" >> "$GITHUB_OUTPUT"
+          echo "Backend URL: $URL  Host: $HOST"
 
       - name: Deploy Frontend
         run: |
@@ -158,13 +160,14 @@ jobs:
             --cpu 1 \
             --min-instances 0 \
             --max-instances 3 \
-            --set-env-vars "BACKEND_URL=${{ steps.backend.outputs.url }}" \
+            --set-env-vars "BACKEND_URL=${{ steps.backend.outputs.url }},BACKEND_HOST=${{ steps.backend.outputs.host }}" \
             --quiet
           echo "✅ Frontend deployed"
 
       - name: Map custom domain
         continue-on-error: true
         run: |
+          gcloud components install beta --quiet 2>/dev/null || true
           if gcloud beta run domain-mappings describe "$FRONTEND_DOMAIN" \
             --region "$REGION" --project "$PROJECT_ID" --quiet 2>/dev/null; then
             echo "✅ Domain mapping $FRONTEND_DOMAIN already exists"
