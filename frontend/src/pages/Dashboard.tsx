@@ -320,7 +320,7 @@ function StudentRow({ student, isLast, onClick }: {
         color: colors.gray700, fontSize: typography.sizes.sm,
         textAlign: 'right',
       }}>
-        {(student.risk_score * 100).toFixed(1)}%
+        {student.risk_score != null ? `${(student.risk_score * 100).toFixed(1)}%` : '—'}
       </span>
     </div>
   )

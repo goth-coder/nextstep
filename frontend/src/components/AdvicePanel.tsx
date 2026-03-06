@@ -4,7 +4,7 @@ import type { PedagogicalAdvice, RiskTier } from '../types/student'
 
 interface AdvicePanelProps {
   studentId: number
-  riskTier: RiskTier
+  riskTier: RiskTier | null
 }
 
 export default function AdvicePanel({ studentId, riskTier }: AdvicePanelProps) {

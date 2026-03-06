@@ -224,7 +224,7 @@ export default function StudentProfile() {
                 fontSize: typography.sizes.xl, color: colors.brandPrimary,
                 letterSpacing: '-0.02em',
               }}>
-                {(student.risk_score * 100).toFixed(1)}%
+                {student.risk_score != null ? `${(student.risk_score * 100).toFixed(1)}%` : '—'}
               </span>
               <span style={{ fontSize: typography.sizes.xs, color: colors.gray500 }}>risco</span>
               <RiskBadge risk_tier={student.risk_tier} />
