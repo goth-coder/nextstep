@@ -14,7 +14,7 @@ export default function StudentListItem({ student, onClick }: StudentListItemPro
     }
   }
 
-  const riskPercent = `${(student.risk_score * 100).toFixed(1)}%`
+  const riskPercent = student.risk_score != null ? `${(student.risk_score * 100).toFixed(1)}%` : '—'
 
   return (
     <div

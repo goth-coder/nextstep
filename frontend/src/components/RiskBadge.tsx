@@ -2,7 +2,7 @@ import type { RiskTier } from '../types/student'
 import { radius, riskColor, typography } from '../styles/theme'
 
 interface RiskBadgeProps {
-  risk_tier: RiskTier
+  risk_tier: RiskTier | null
 }
 
 const TIER_META: Record<RiskTier, { label: string; icon: string }> = {
@@ -12,6 +12,7 @@ const TIER_META: Record<RiskTier, { label: string; icon: string }> = {
 }
 
 export default function RiskBadge({ risk_tier }: RiskBadgeProps) {
+  if (!risk_tier) return <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}>—</span>
   const { fg, bg } = riskColor(risk_tier)
   const { label, icon } = TIER_META[risk_tier]
 

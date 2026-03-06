@@ -12,8 +12,8 @@ export interface StudentSummary {
   display_name: string
   phase: string
   class_group: string
-  risk_score: number
-  risk_tier: RiskTier
+  risk_score: number | null
+  risk_tier: RiskTier | null
 }
 
 export interface ModelInfo {
