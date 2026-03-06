@@ -168,23 +168,14 @@ jobs:
         continue-on-error: true
         run: |
           gcloud components install beta --quiet 2>/dev/null || true
-          if gcloud beta run domain-mappings describe "$FRONTEND_DOMAIN" \
-            --region "$REGION" --project "$PROJECT_ID" --quiet 2>/dev/null; then
-            echo "✅ Domain mapping $FRONTEND_DOMAIN already exists"
-          else
-            gcloud beta run domain-mappings create \
-              --service nextstep-web \
-              --domain "$FRONTEND_DOMAIN" \
-              --region "$REGION" \
-              --project "$PROJECT_ID" \
-              --quiet
-            echo "✅ Domain mapping $FRONTEND_DOMAIN created"
-          fi
-          # Show DNS records required (for reference)
+          # Domain mapping was created manually; CI only verifies it exists.
+          # To enable auto-create: add github-actions-sa@nextstep-fiap-project.iam.gserviceaccount.com
+          # as delegated owner at https://search.google.com/search-console/users
           gcloud beta run domain-mappings describe "$FRONTEND_DOMAIN" \
             --region "$REGION" --project "$PROJECT_ID" \
             --format='table(status.resourceRecords[].type, status.resourceRecords[].name, status.resourceRecords[].rrdata)' \
-            2>/dev/null || true
+            2>/dev/null && echo "✅ Domain mapping $FRONTEND_DOMAIN exists" \
+            || echo "ℹ️ Domain mapping not visible to SA (mapping may still be active)"
 
       - name: Smoke test
         run: |
