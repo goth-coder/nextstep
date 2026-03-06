@@ -80,6 +80,7 @@ jobs:
             --disk-type pd-standard \
             --disk-size "$TRAIN_DISK" \
             --project "$PROJECT_ID" \
+            --scopes=cloud-platform \
             --no-enable-autoupgrade \
             --quiet
           echo "cluster_name=$CLUSTER_NAME" >> "$GITHUB_OUTPUT"
