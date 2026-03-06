@@ -2,7 +2,7 @@ import axios from 'axios'
 import type { DriftInfo, ModelInfo, PedagogicalAdvice, PredictInput, PredictResult, StudentDetail, StudentSummary } from '../types/student'
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080',
+  baseURL: import.meta.env.VITE_API_BASE_URL ?? '',
   timeout: 10_000,
 })
 
