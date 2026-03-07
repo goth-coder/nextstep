@@ -1,157 +1,203 @@
 """
 Unit tests for ETL pipeline (data_loader.py).
 
-Tests run against a temporary directory with synthetic data to avoid
-depending on the real dataset file.
+Tests mock _load_sheet() to inject synthetic DataFrames with the correct
+schema, avoiding a dependency on a real XLSX/GCS file.
+
+The synthetic sheets cover years 2022, 2023, 2024 with shared RA keys
+so the temporal pair-building logic can be exercised end-to-end.
 """
+
+from __future__ import annotations
 
 import pickle
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from ml.data_loader import INPUT_SIZE
 
-def _make_synthetic_df(n: int = 20, null_fraction: float = 0.2) -> pd.DataFrame:
-    """Return a small synthetic DataFrame matching the real CSV schema."""
-    rng = np.random.default_rng(42)
 
+# ── Synthetic data factory ────────────────────────────────────────────────────
+
+def _make_sheet(n: int, year: int, ras: list[str], rng: np.random.Generator, null_fraction: float = 0.1) -> pd.DataFrame:
+    """Return a synthetic DataFrame matching the schema produced by _load_sheet()."""
     data = {
-        "ID_num": range(1, n + 1),
-        "year": [2021] * n,
+        "RA": ras,
+        "Nome": [f"ALUNO-{ra}" for ra in ras],
+        "Fase": rng.integers(1, 6, n).astype(str),
+        "Turma": rng.choice(["A", "B", "C", "G", "F"], n),
         "IAA": rng.uniform(4, 10, n),
         "IEG": rng.uniform(3, 10, n),
         "IPS": rng.uniform(4, 10, n),
         "IDA": rng.uniform(3, 10, n),
-        "IAN": rng.uniform(0, 10, n),
         "IPV": rng.uniform(4, 10, n),
-        "defasagem_raw": rng.uniform(-2, 2, n),
-        "NOME": [f"ALUNO-{i}" for i in range(1, n + 1)],
-        "Fase": rng.integers(1, 7, n).astype(float),
-        "Turma": rng.choice(["A", "B", "C", "G", "F"], n),
-        "defasagem_bin": rng.integers(0, 2, n),
-        "has_indicator": [True] * n,
+        "IPP": rng.uniform(4, 10, n),
+        "INDE": rng.uniform(4, 10, n),
+        "defasagem": rng.integers(-3, 2, n).astype(float),
+        "defasagem_raw": rng.integers(-3, 2, n).astype(float),
+        "fase_num": rng.integers(0, 7, n),
+        "gender": rng.integers(0, 2, n),
+        "age": rng.uniform(8, 18, n),
+        "year": year,
     }
-
     df = pd.DataFrame(data)
 
-    # Introduce nulls in indicators
-    for col in ["IAA", "IEG", "IPS", "IDA", "IAN", "IPV"]:
+    # Introduce a few NaN values in indicator columns (real data has gaps)
+    for col in ["IAA", "IEG", "IPS", "IDA", "IPV"]:
         null_mask = rng.random(n) < null_fraction
         df.loc[null_mask, col] = np.nan
 
     return df
 
 
-@pytest.fixture()
-def tmp_project(tmp_path: Path):
-    """Create a temporary project with synthetic CSV and patched paths."""
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    csv_path = data_dir / "dataset_unificado_defasagem.csv"
-
-    df = _make_synthetic_df(20, null_fraction=0.3)
-    df.to_csv(csv_path, index=False)
-
-    processed_dir = tmp_path / "backend" / "data" / "processed"
-    processed_dir.mkdir(parents=True)
-
-    return {"csv_path": csv_path, "processed_dir": processed_dir, "tmp_path": tmp_path}
+def _make_sheets(n: int = 30, null_fraction: float = 0.1):
+    """Return three synthetic sheets (2022, 2023, 2024) with overlapping RAs."""
+    rng = np.random.default_rng(42)
+    # Use same RAs across years so temporal pairs can be built
+    ras = [f"RA-{i:04d}" for i in range(1, n + 1)]
+    d22 = _make_sheet(n, 2022, ras, rng, null_fraction)
+    d23 = _make_sheet(n, 2023, ras, rng, null_fraction)
+    d24 = _make_sheet(n, 2024, ras, rng, null_fraction=0)  # no nulls for inference
+    return d22, d23, d24
 
 
-def _run_etl(tmp_project: dict) -> None:
-    """Import and run the ETL pipeline with patched paths."""
+# ── ETL runner with patches ───────────────────────────────────────────────────
+
+def _run_etl(processed_dir: Path, n: int = 30, null_fraction: float = 0.1) -> tuple:
+    """Run the full ETL pipeline with synthetic sheets injected via mocks."""
+    d22, d23, d24 = _make_sheets(n=n, null_fraction=null_fraction)
+
+    # _load_sheet returns different frames per year argument
+    def fake_load_sheet(xl, sheet_name: str, year: int) -> pd.DataFrame:
+        mapping = {2022: d22, 2023: d23, 2024: d24}
+        return mapping[year]
+
+    fake_xl = MagicMock()  # ExcelFile — not actually read
+
     with (
-        patch("ml.data_loader._DEFAULT_PATHS", [tmp_project["csv_path"]]),
-        patch("ml.data_loader.PROCESSED_DIR", tmp_project["processed_dir"]),
+        patch("ml.data_loader._find_xlsx", return_value="fake.xlsx"),
+        patch("ml.data_loader.pd.ExcelFile", return_value=fake_xl),
+        patch("ml.data_loader._load_sheet", side_effect=fake_load_sheet),
+        patch("ml.data_loader.PROCESSED_DIR", processed_dir),
+        patch("ml.data_loader.os.environ.get", side_effect=lambda k, d="": "" if k == "GCS_BUCKET" else d),
     ):
         from ml.data_loader import run_etl
-
         run_etl()
+
+    return d22, d23, d24
+
+
+# ── Fixtures ──────────────────────────────────────────────────────────────────
+
+@pytest.fixture()
+def etl_result(tmp_path: Path):
+    """Run ETL once, return processed_dir + original sheets."""
+    processed_dir = tmp_path / "processed"
+    processed_dir.mkdir()
+    d22, d23, d24 = _run_etl(processed_dir)
+    return {"processed_dir": processed_dir, "d22": d22, "d23": d23, "d24": d24}
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
-
-def test_imputation_fills_nulls(tmp_project):
-    """After ETL, no nan values should remain in the X tensor."""
-    _run_etl(tmp_project)
-    X = np.load(tmp_project["processed_dir"] / "X.npy")
-    assert not np.isnan(X).any(), "X tensor must have no NaN values after imputation"
-
-
-def test_normalised_values_in_unit_range(tmp_project):
-    """After RobustScaler, train features should have median≈0; values outside
-    [-5, 5] are extreme outliers and are clipped in inference/test transforms."""
-    _run_etl(tmp_project)
-    X = np.load(tmp_project["processed_dir"] / "X.npy")
-    # RobustScaler does NOT bound to [0,1]; check that bulk of values are reasonable
-    assert not np.isnan(X).any(), "Scaled X must have no NaN"
-    # After RobustScaler the median of the train transform should be near 0
-    assert abs(np.median(X)) < 1.0, f"Median far from 0: {np.median(X):.4f} (RobustScaler expected)"
+def test_output_files_created(etl_result):
+    """All expected output files must exist after ETL."""
+    pd = etl_result["processed_dir"]
+    for fname in ["X_train.npy", "y_train.npy", "X_test.npy", "y_test.npy",
+                  "X_inference.npy", "scaler.pkl", "students_meta.pkl"]:
+        assert (pd / fname).exists(), f"{fname} was not created by ETL"
 
 
-def test_output_tensor_shape(tmp_project):
-    """X.npy should be (N, 7); y.npy should be (N,)."""
-    _run_etl(tmp_project)
-    X = np.load(tmp_project["processed_dir"] / "X.npy")
-    y = np.load(tmp_project["processed_dir"] / "y.npy")
-    assert X.ndim == 2, f"Expected 2D tensor, got shape {X.shape}"
-    assert X.shape[1] == 6, f"Expected 6 indicators, got {X.shape[1]}"
-    assert y.ndim == 1, f"Expected 1D label tensor, got shape {y.shape}"
-    assert X.shape[0] == y.shape[0], "X and y must have the same number of rows"
+def test_train_tensor_shape(etl_result):
+    """X_train must be (N, INPUT_SIZE); y_train must be (N,)."""
+    pd_dir = etl_result["processed_dir"]
+    X = np.load(pd_dir / "X_train.npy")
+    y = np.load(pd_dir / "y_train.npy")
+    assert X.ndim == 2, f"Expected 2D, got {X.shape}"
+    assert X.shape[1] == INPUT_SIZE, f"Expected INPUT_SIZE={INPUT_SIZE}, got {X.shape[1]}"
+    assert y.ndim == 1
+    assert X.shape[0] == y.shape[0], "X_train and y_train length mismatch"
 
 
-def test_deduplication_removes_duplicate_rows(tmp_project):
-    """Duplicate ID_num+year rows should be dropped."""
-    # Add duplicates to the CSV
-    csv_path = tmp_project["csv_path"]
-    df = pd.read_csv(csv_path)
-    dup_df = pd.concat([df, df.head(5)], ignore_index=True)
-    dup_df.to_csv(csv_path, index=False)
-
-    _run_etl(tmp_project)
-
-    X = np.load(tmp_project["processed_dir"] / "X.npy")
-    # Original has 20 unique rows; duplicated 5 rows should be dropped
-    assert X.shape[0] == 20, f"Expected 20 rows after dedup, got {X.shape[0]}"
+def test_test_tensor_shape(etl_result):
+    """X_test and y_test must have the same number of rows and INPUT_SIZE features."""
+    pd_dir = etl_result["processed_dir"]
+    X = np.load(pd_dir / "X_test.npy")
+    y = np.load(pd_dir / "y_test.npy")
+    assert X.shape[1] == INPUT_SIZE
+    assert X.shape[0] == y.shape[0]
 
 
-def test_scaler_persists_and_reloads(tmp_project):
-    """scaler.pkl must be a valid sklearn RobustScaler after ETL."""
-    _run_etl(tmp_project)
-    scaler_path = tmp_project["processed_dir"] / "scaler.pkl"
-    assert scaler_path.exists(), "scaler.pkl must be created by ETL"
+def test_inference_tensor_shape(etl_result):
+    """X_inference must cover all 2024 students with INPUT_SIZE features."""
+    pd_dir = etl_result["processed_dir"]
+    X = np.load(pd_dir / "X_inference.npy")
+    assert X.ndim == 2
+    assert X.shape[1] == INPUT_SIZE
+    # 2024 sheet has 30 students (no drops — null_fraction=0)
+    assert X.shape[0] == 30, f"Expected 30 inference rows, got {X.shape[0]}"
+
+
+def test_no_nan_in_train(etl_result):
+    """X_train must have no NaN — null rows are dropped during pair-building."""
+    X = np.load(etl_result["processed_dir"] / "X_train.npy")
+    assert not np.isnan(X).any(), "X_train contains NaN values"
+
+
+def test_no_nan_in_inference(etl_result):
+    """X_inference must have no NaN — inference uses median imputation."""
+    X = np.load(etl_result["processed_dir"] / "X_inference.npy")
+    assert not np.isnan(X).any(), "X_inference contains NaN values (imputation failed)"
+
+
+def test_train_scaled_median_near_zero(etl_result):
+    """After RobustScaler fit on train, the median of X_train should be ≈0."""
+    X = np.load(etl_result["processed_dir"] / "X_train.npy")
+    assert abs(np.median(X)) < 1.0, f"Train median far from 0: {np.median(X):.4f}"
+
+
+def test_scaler_persists_and_reloads(etl_result):
+    """scaler.pkl must be a valid fitted RobustScaler with INPUT_SIZE features."""
+    scaler_path = etl_result["processed_dir"] / "scaler.pkl"
+    assert scaler_path.exists()
 
     with open(scaler_path, "rb") as f:
         scaler = pickle.load(f)
 
     from sklearn.preprocessing import RobustScaler
+    assert isinstance(scaler, RobustScaler)
+    assert scaler.n_features_in_ == INPUT_SIZE, (
+        f"Expected scaler fitted on {INPUT_SIZE} features, got {scaler.n_features_in_}"
+    )
 
-    assert isinstance(scaler, RobustScaler), f"Expected RobustScaler, got {type(scaler)}"
-    assert scaler.n_features_in_ == 8, f"Expected 8 features, got {scaler.n_features_in_}"
+
+def test_students_meta_has_correct_count(etl_result):
+    """students_meta.pkl should have one record per 2024 student."""
+    meta_path = etl_result["processed_dir"] / "students_meta.pkl"
+    with open(meta_path, "rb") as f:
+        meta = pickle.load(f)
+    assert len(meta) == 30, f"Expected 30 student records, got {len(meta)}"
 
 
-def test_students_meta_has_correct_count(tmp_project):
-    """students_meta.pkl should contain one record per unique student."""
-    _run_etl(tmp_project)
-    meta_path = tmp_project["processed_dir"] / "students_meta.pkl"
+def test_students_meta_fields(etl_result):
+    """Each record must have the mandatory fields consumed by the API."""
+    meta_path = etl_result["processed_dir"] / "students_meta.pkl"
     with open(meta_path, "rb") as f:
         meta = pickle.load(f)
 
-    assert len(meta) == 20, f"Expected 20 student records, got {len(meta)}"
-
-
-def test_students_meta_fields(tmp_project):
-    """Each record in students_meta.pkl must have required fields."""
-    _run_etl(tmp_project)
-    meta_path = tmp_project["processed_dir"] / "students_meta.pkl"
-    with open(meta_path, "rb") as f:
-        meta = pickle.load(f)
-
-    required_fields = {"student_id", "display_name", "phase", "class_group", "iaa", "ieg", "ips", "ida", "ian", "ipv"}
+    required_fields = {"student_id", "display_name", "phase", "class_group", "iaa", "ieg", "ips", "ida", "ipv"}
     for record in meta:
         missing = required_fields - record.keys()
         assert not missing, f"Record {record.get('student_id')} missing fields: {missing}"
+
+
+def test_binary_labels(etl_result):
+    """All y values must be 0.0 or 1.0 (binary classification)."""
+    for fname in ["y_train.npy", "y_test.npy"]:
+        y = np.load(etl_result["processed_dir"] / fname)
+        unique = set(np.unique(y))
+        assert unique <= {0.0, 1.0}, f"{fname} has unexpected label values: {unique}"

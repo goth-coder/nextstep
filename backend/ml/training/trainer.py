@@ -57,7 +57,10 @@ class TrainingLoop:
 
     def __init__(self, config: TrainConfig, pos_weight: torch.Tensor) -> None:
         self._cfg = config
-        self._pos_weight = pos_weight
+        # pos_weight (neg/pos ratio) is retained for API compat but is no longer
+        # applied directly.  WeightedRandomSampler already balances each batch to
+        # ~50/50, so pos_weight_multiplier in the loss is used instead (see fit()).
+        self._pos_weight = pos_weight  # noqa: F841 — kept for API compatibility
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -79,7 +82,19 @@ class TrainingLoop:
             step_callback: optional fn(epoch, loss) for HPO pruning hooks.
         """
         torch.manual_seed(self._cfg.seed)
-        scaled_pw = self._pos_weight * self._cfg.pos_weight_multiplier
+        # WeightedRandomSampler (below) already makes every batch ~50/50
+        # positive/negative.  Applying the raw neg/pos ratio (~4.8×) on top via
+        # BCEWithLogitsLoss(pos_weight=...) would double-compensate for the
+        # imbalance, pushing the model toward extremely high recall at the cost
+        # of precision and collapsing F1.
+        #
+        # With balanced batches the "neutral" pos_weight is 1.0.
+        # pos_weight_multiplier then becomes the sole precision/recall dial:
+        #   < 1.0  →  precision-biased
+        #   = 1.0  →  balanced (neutral, correct for balanced sampler)
+        #   > 1.0  →  recall-biased
+        # Optuna searches this in [0.5, 4.0], giving it full freedom.
+        scaled_pw = torch.tensor([self._cfg.pos_weight_multiplier])
         criterion = nn.BCEWithLogitsLoss(pos_weight=scaled_pw)
         optimizer = torch.optim.Adam(model.parameters(), lr=self._cfg.lr, weight_decay=self._cfg.weight_decay)
 
