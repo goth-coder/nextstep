@@ -1,12 +1,15 @@
 [tool.ruff]
 line-length = 120
-select = ["E", "F", "I"]
 exclude = [
     ".venv",
     "venv",
     "__pycache__",
     "*.egg-info",
+    "scripts",  # exploratory scripts, not production code
 ]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

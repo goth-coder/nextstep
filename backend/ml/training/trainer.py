@@ -9,10 +9,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Callable  # noqa: F401 — Callable used in string annotation below
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset, WeightedRandomSampler
+
+if TYPE_CHECKING:
+    pass  # Callable already imported above for string annotations
 
 log = logging.getLogger(__name__)
 
