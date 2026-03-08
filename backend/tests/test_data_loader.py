@@ -18,12 +18,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ml.data_loader import INPUT_SIZE
-
+from ml.data_loader import INPUT_SIZE  # noqa: E402
 
 # ── Synthetic data factory ────────────────────────────────────────────────────
 
-def _make_sheet(n: int, year: int, ras: list[str], rng: np.random.Generator, null_fraction: float = 0.1) -> pd.DataFrame:
+def _make_sheet(
+    n: int, year: int, ras: list[str], rng: np.random.Generator, null_fraction: float = 0.1
+) -> pd.DataFrame:
     """Return a synthetic DataFrame matching the schema produced by _load_sheet()."""
     data = {
         "RA": ras,

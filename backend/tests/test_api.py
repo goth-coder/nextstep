@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.domain.student import Indicators, RiskTier, StudentRecord
+from app.domain.student import Indicators, StudentRecord
 
 _IND_HIGH = Indicators(iaa=6.2, ieg=5.5, ips=4.3, ida=3.7, ipv=3.1, ipp=4.0, inde=4.5, defasagem=-2)
 _IND_LOW  = Indicators(iaa=9.0, ieg=8.8, ips=7.7, ida=9.1, ipv=9.2, ipp=8.5, inde=9.0, defasagem=0)
@@ -32,6 +32,7 @@ REC_LOW = StudentRecord.build(
 def _make_mock_cache(ready: bool = True, records=None):
     mock_cache = MagicMock()
     mock_cache.is_ready.return_value = ready
+    mock_cache.has_students.return_value = ready  # routes.py uses has_students(), not is_ready()
     mock_cache.get_all.return_value = records if records is not None else [REC_HIGH, REC_LOW]
     mock_cache.get_by_id.side_effect = lambda sid: {1: REC_HIGH, 2: REC_LOW}.get(int(sid))
     mock_cache.count.return_value = len(records) if records is not None else 2

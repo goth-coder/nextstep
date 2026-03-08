@@ -49,6 +49,7 @@ def _make_service(fake_groq_mod: ModuleType, api_key: str = "fake-key") -> LLMSe
     svc._api_key = api_key
     svc._model = "llama3-8b-8192"
     svc._groq = fake_groq_mod
+    svc._cache = {}  # __new__ bypasses __init__ — must initialise manually
     return svc
 
 
@@ -112,15 +113,23 @@ def test_prompt_has_no_none_literal():
 # -- Successful response ------------------------------------------------------
 
 
+_VALID_ADVICE = (
+    "1. Reforçar leitura diária com textos adequados à fase do aluno.\n"
+    "2. Propor atividades de matemática contextualizada com jogos.\n"
+    "3. Estabelecer metas semanais claras com feedback positivo.\n"
+    "4. Envolver a família no acompanhamento das tarefas escolares."
+)  # >= 80 chars — passes _validate()
+
+
 def test_success_returns_advice_and_false():
-    svc = _make_service(_fake_groq_module("Sugestao pedagogica."))
+    svc = _make_service(_fake_groq_module(_VALID_ADVICE))
     advice, fallback = svc.generate_advice(
         display_name="ALUNO-1",
         indicators=_DEFAULT_INDICATORS,
         risk_score=0.85,
     )
     assert fallback is False
-    assert advice == "Sugestao pedagogica."
+    assert advice == _VALID_ADVICE
 
 
 # -- Fallback handling --------------------------------------------------------

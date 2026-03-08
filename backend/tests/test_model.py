@@ -38,9 +38,11 @@ _TENSOR_SKIP = pytest.mark.skipif(
     not (PROCESSED_DIR / "X_test.npy").exists(),
     reason="X_test.npy not found — run data_loader.py first",
 )
+# Skip when no remote MLflow is configured. A local mlruns/ folder may exist but
+# contain incomplete artifacts from past runs — only treat a remote URI as available.
 _MLFLOW_SKIP = pytest.mark.skipif(
-    os.getenv("MLFLOW_TRACKING_URI") is None and not os.path.exists("mlruns"),
-    reason="MLflow not available",
+    os.getenv("MLFLOW_TRACKING_URI") is None,
+    reason="MLFLOW_TRACKING_URI not set — skipping model gate (CI sets this env var)",
 )
 
 
