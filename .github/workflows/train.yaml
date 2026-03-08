@@ -1,8 +1,14 @@
-name: Train LSTM
+name: Train Model
 
 on:
   workflow_dispatch:
     inputs:
+      model_type:
+        description: "Model architecture to train"
+        required: false
+        default: "lstm"
+        type: choice
+        options: ["lstm", "lgbm"]
       promote_to_prod:
         description: "Promote @staging to @prod after training?"
         required: false
@@ -10,12 +16,16 @@ on:
         type: choice
         options: ["true", "false"]
       trials:
-        description: "HPO trials via tune.py (0 = skip HPO, run train.py directly; max 50)"
+        description: "HPO trials (0 = skip HPO, run train directly; max 50)"
         required: false
         default: "0"
         type: string
   workflow_call:
     inputs:
+      model_type:
+        required: false
+        default: "lstm"
+        type: string
       promote_to_prod:
         required: false
         default: "true"
@@ -38,6 +48,8 @@ jobs:
     name: Create Cluster + Run Training
     runs-on: ubuntu-latest
     timeout-minutes: 90  # hard cap: cluster costs money if left running (50 trials can take ~60min)
+    outputs:
+      model_name: ${{ steps.submit.outputs.model_name }}
     permissions:
       contents: read
       id-token: write
@@ -105,17 +117,23 @@ jobs:
         run: kubectl delete job nextstep-train -n nextstep 2>/dev/null || true
 
       - name: Submit training job
+        id: submit
         run: |
           TRIALS="${{ inputs.trials }}"
           TRIALS=${TRIALS:-0}
           # Clamp to max 50
           if (( TRIALS > 50 )); then TRIALS=50; fi
-          echo "Trials: $TRIALS (0 = train.py, >0 = tune.py --trials N)"
+          MODEL_TYPE="${{ inputs.model_type }}"
+          MODEL_TYPE=${MODEL_TYPE:-lstm}
+          MODEL_NAME="nextstep-${MODEL_TYPE}"
+          echo "model_name=${MODEL_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Trials: $TRIALS  ModelType: $MODEL_TYPE  ModelName: $MODEL_NAME"
           sed "s|IMAGE_TAG_PLACEHOLDER|${{ github.sha }}|g" k8s/train-job.yaml \
             | sed "s|http://nextstep-mlflow-service:5000|${{ steps.mlflow.outputs.url }}|g" \
             | sed "s|TRIALS_PLACEHOLDER|$TRIALS|g" \
+            | sed "s|MODEL_TYPE_PLACEHOLDER|$MODEL_TYPE|g" \
             | kubectl apply -f -
-          echo "✅ Training job submitted with TRIALS=$TRIALS"
+          echo "✅ Training job submitted with MODEL_TYPE=$MODEL_TYPE TRIALS=$TRIALS"
 
       - name: Wait for pod to be scheduled
         run: |
@@ -216,30 +234,34 @@ jobs:
       - name: Promote latest version to @staging
         env:
           MLFLOW_URL: ${{ steps.mlflow.outputs.url }}
+          MODEL_NAME: ${{ needs.train.outputs.model_name }}
         run: |
           python3 - <<'EOF'
           import mlflow, sys, os
+          name = os.environ["MODEL_NAME"]
           client = mlflow.MlflowClient(os.environ["MLFLOW_URL"])
-          versions = client.search_model_versions("name='nextstep-lstm'")
+          versions = client.search_model_versions(f"name='{name}'")
           if not versions:
-              print("No model versions found — training may have failed")
+              print(f"No model versions found for '{name}' — training may have failed")
               sys.exit(1)
           latest = max(versions, key=lambda v: int(v.version))
-          client.set_registered_model_alias("nextstep-lstm", "staging", latest.version)
-          print(f"✅ Version {latest.version} → @staging")
+          client.set_registered_model_alias(name, "staging", latest.version)
+          print(f"✅ {name} version {latest.version} → @staging")
           EOF
 
       - name: Promote @staging to @prod
         if: inputs.promote_to_prod == 'true'
         env:
           MLFLOW_URL: ${{ steps.mlflow.outputs.url }}
+          MODEL_NAME: ${{ needs.train.outputs.model_name }}
         run: |
           python3 - <<'EOF'
           import mlflow, os
+          name = os.environ["MODEL_NAME"]
           client = mlflow.MlflowClient(os.environ["MLFLOW_URL"])
-          mv = client.get_model_version_by_alias("nextstep-lstm", "staging")
-          client.set_registered_model_alias("nextstep-lstm", "prod", mv.version)
-          print(f"✅ Version {mv.version} → @prod")
+          mv = client.get_model_version_by_alias(name, "staging")
+          client.set_registered_model_alias(name, "prod", mv.version)
+          print(f"✅ {name} version {mv.version} → @prod")
           EOF
 
       - name: Restart API to load new model

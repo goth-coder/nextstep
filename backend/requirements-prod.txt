@@ -16,6 +16,7 @@ openpyxl==3.1.5          # reads .xlsx data file at startup
 gcsfs==2024.6.0          # enables pandas to read gs:// URIs directly
 google-auth==2.29.0      # GCS authentication in GKE pods
 optuna==3.6.1
+lightgbm>=4.3
 
 # MLflow (model registry + artifact download)
 mlflow==2.14.3

@@ -18,7 +18,7 @@ spec:
       containers:
         - name: train
           image: us-central1-docker.pkg.dev/nextstep-fiap-project/nextstep/nextstep-api:IMAGE_TAG_PLACEHOLDER
-          command: ["sh", "-c", "mkdir -p /app/data/processed && python ml/data_loader.py && if [ \"$TRIALS\" -gt 0 ]; then python ml/tune.py --trials $TRIALS; else python ml/train.py; fi"]
+          command: ["sh", "-c", "mkdir -p /app/data/processed && python ml/data_loader.py && if [ \"$MODEL_TYPE\" = \"lgbm\" ]; then if [ \"$TRIALS\" -gt 0 ]; then python ml/tune_lgbm.py --trials $TRIALS; else python ml/train_lgbm.py; fi; else if [ \"$TRIALS\" -gt 0 ]; then python ml/tune.py --trials $TRIALS; else python ml/train.py; fi; fi"]
           env:
             - name: MLFLOW_TRACKING_URI
               value: "http://nextstep-mlflow-service:5000"
@@ -30,6 +30,8 @@ spec:
               value: "nextstep-bucket"
             - name: TRIALS
               value: "TRIALS_PLACEHOLDER"
+            - name: MODEL_TYPE
+              value: "MODEL_TYPE_PLACEHOLDER"
             - name: GROQ_API_KEY
               valueFrom:
                 secretKeyRef:
