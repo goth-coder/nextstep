@@ -44,12 +44,13 @@ def create_app() -> Flask:
     from app.services.prediction import PredictionService
 
     tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
-    log.info("Starting API with MLFLOW_TRACKING_URI=%s", tracking_uri)
+    model_name = os.getenv("MLFLOW_MODEL_NAME", "nextstep-lstm")
+    log.info("Starting API with MLFLOW_TRACKING_URI=%s  model=%s", tracking_uri, model_name)
 
     data_repo = make_student_data_repository()
     cache_svc = StudentCacheService(
         PredictionService(
-            model_repo=MLflowModelRepository(tracking_uri=tracking_uri),
+            model_repo=MLflowModelRepository(model_name=model_name, tracking_uri=tracking_uri),
             data_repo=data_repo,
         )
     )

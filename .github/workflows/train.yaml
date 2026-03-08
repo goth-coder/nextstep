@@ -267,12 +267,13 @@ jobs:
       - name: Restart API to load new model
         if: inputs.promote_to_prod == 'true'
         run: |
+          MODEL_NAME="${{ needs.train.outputs.model_name }}"
           gcloud run services update nextstep-api \
             --region "$REGION" \
             --project "$PROJECT_ID" \
-            --update-env-vars "CACHE_BUST=${{ github.run_id }}" \
+            --update-env-vars "CACHE_BUST=${{ github.run_id }},MLFLOW_MODEL_NAME=${MODEL_NAME}" \
             --quiet
-          echo "✅ API restarted — will load new @prod model on startup"
+          echo "✅ API restarted — will load ${MODEL_NAME}@prod on startup"
 
   cleanup:
     name: Delete Ephemeral Cluster
