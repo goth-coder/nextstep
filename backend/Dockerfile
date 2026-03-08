@@ -5,6 +5,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# libgomp1 is required by LightGBM (OpenMP runtime)
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install PyTorch CPU-only FIRST — avoids pulling ~7GB of CUDA libraries.
 # The full pip wheel defaults to CUDA; the whl/ index has CPU-only builds.
 RUN pip install --no-cache-dir \
