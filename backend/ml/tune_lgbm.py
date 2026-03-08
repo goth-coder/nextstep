@@ -65,12 +65,15 @@ class _Objective:
         self,
         X_tr, y_tr, X_val, y_val,
         parent_run_id: str,
+        n_trials: int,
     ) -> None:
         self._X_tr = X_tr
         self._y_tr = y_tr
         self._X_val = X_val
         self._y_val = y_val
         self._parent_run_id = parent_run_id
+        self._n_trials = n_trials
+        self._best_f1 = 0.0
 
     def __call__(self, trial: optuna.Trial) -> float:
         import lightgbm as lgb
@@ -91,11 +94,27 @@ class _Objective:
             "verbosity": -1,
         }
 
+        log.info(
+            "[Trial %d/%d] leaves=%d  depth=%d  lr=%.4f  n_est=%d  spw=%.2f",
+            trial.number + 1, self._n_trials,
+            params["num_leaves"], params["max_depth"], params["learning_rate"],
+            params["n_estimators"], params["scale_pos_weight"],
+        )
+
         model = lgb.LGBMClassifier(**params)
         model.fit(self._X_tr, self._y_tr.astype(int))
 
         calibrator = fit_calibrator(model, self._X_val, self._y_val)
         threshold, val_f1 = find_threshold(model, self._X_val, self._y_val, calibrator)
+
+        is_best = val_f1 > self._best_f1
+        if is_best:
+            self._best_f1 = val_f1
+        log.info(
+            "[Trial %d/%d] val_f1=%.4f  threshold=%.4f%s",
+            trial.number + 1, self._n_trials, val_f1, threshold,
+            "  ← NEW BEST" if is_best else "",
+        )
 
         # Log trial as child MLflow run
         from training.evaluator import EvalResult
@@ -119,9 +138,6 @@ class _Objective:
         log.info("Trial %d — val_f1=%.4f  threshold=%.4f", trial.number, val_f1, threshold)
         return val_f1
 
-
-# ── Main ──────────────────────────────────────────────────────────────────────
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="HPO for LightGBM risk model")
     parser.add_argument("--trials", type=int, default=30, help="Number of Optuna trials (default: 30)")
@@ -141,14 +157,26 @@ def main() -> None:
     with mlflow.start_run(run_name=f"lgbm-hpo-{args.trials}-trials") as parent_run:
         parent_run_id = parent_run.info.run_id
         log.info("Started HPO parent run: %s", parent_run_id)
+        log.info("━" * 60)
+        log.info("Running %d Optuna trials (TPE sampler, seed=42)", args.trials)
+        log.info("Objective: maximize calibrated val F1  |  val set: %d samples", len(X_val))
+        log.info("━" * 60)
 
-        objective = _Objective(X_tr, y_tr, X_val, y_val, parent_run_id)
+        objective = _Objective(X_tr, y_tr, X_val, y_val, parent_run_id, args.trials)
         study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=42))
         study.optimize(objective, n_trials=args.trials, show_progress_bar=False)
 
+    log.info("━" * 60)
+    log.info(
+        "HPO complete — best trial #%d  val_f1=%.4f",
+        study.best_trial.number + 1, study.best_value,
+    )
+    log.info("Best hyperparameters:")
+    for k, v in study.best_params.items():
+        log.info("  %-22s = %s", k, v)
+    log.info("━" * 60)
+
     best_params = {**DEFAULT_PARAMS, **study.best_params}
-    log.info("Best trial %d — val_f1=%.4f", study.best_trial.number, study.best_value)
-    log.info("Best params: %s", json.dumps(best_params, indent=2))
 
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     BEST_PARAMS_PATH.write_text(json.dumps(best_params, indent=2))
@@ -159,7 +187,9 @@ def main() -> None:
         log.info("--no-train set — skipping final training run")
         return
 
-    log.info("Retraining with best params and registering @staging + @prod …")
+    log.info("━" * 60)
+    log.info("Retraining final model with best HPO params ...")
+    log.info("━" * 60)
     from train_lgbm import train_lgbm  # noqa: E402
     train_lgbm(params=best_params)
 

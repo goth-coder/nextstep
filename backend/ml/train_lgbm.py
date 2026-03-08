@@ -25,7 +25,6 @@ import os
 import pickle
 import sys
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
 
 import lightgbm as lgb
@@ -289,9 +288,13 @@ def train_lgbm(
     log.info("Training LGBMClassifier — params=%s", p)
     model = lgb.LGBMClassifier(**p)
     model.fit(X_tr, y_tr.astype(int))
+    log.info("Fit complete — %d trees grown", model.n_estimators_)
 
+    log.info("Fitting Platt calibrator on val set (%d samples) ...", len(X_val))
     calibrator = fit_calibrator(model, X_val, y_val)
+    log.info("Searching optimal threshold via PR-curve on val set ...")
     threshold, val_f1_internal = find_threshold(model, X_val, y_val, calibrator)
+    log.info("Evaluating on test set (%d samples) ...", len(X_test))
     result = evaluate(model, X_test, y_test, threshold, val_f1_internal, calibrator)
 
     # Quality gate
@@ -307,6 +310,7 @@ def train_lgbm(
         result.val_auc, result.test_f1_oracle, result.val_f1, result.threshold,
     )
 
+    log.info("Logging run to MLflow experiment '%s' ...", EXPERIMENT_NAME)
     run_id = _log_run(
         params=p,
         result=result,
@@ -316,6 +320,11 @@ def train_lgbm(
         input_size=X_tr.shape[1],
     )
     _promote(run_id, aliases=["staging", "prod"])
+    log.info("━" * 60)
+    log.info("Training complete ✓  run_id=%s", run_id)
+    log.info("  AUC=%.4f   F1_oracle=%.4f   threshold=%.4f", result.val_auc, result.test_f1_oracle, result.threshold)
+    log.info("  Model registered as '%s' @staging @prod", MODEL_NAME)
+    log.info("━" * 60)
     return result
 
 
