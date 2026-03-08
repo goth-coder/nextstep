@@ -87,7 +87,10 @@ class HPORunner:
             loss_curve = loop.fit(model, X_train, y_train)
             train_loss = loss_curve[-1]
 
-            threshold, val_f1 = self._evaluator.find_threshold(model, X_val, y_val)
+            # Platt calibration: remap logits to true class prior before threshold selection.
+            # Each trial needs its own calibrator (fitted on this trial's val logits).
+            calibrator = self._evaluator.fit_calibrator(model, X_val, y_val)
+            threshold, val_f1 = self._evaluator.find_threshold(model, X_val, y_val, calibrator)
 
             # Log child run to MLflow
             from .evaluator import EvalResult

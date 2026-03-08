@@ -69,6 +69,7 @@ class MLflowRegistry:
         result: EvalResult,
         model: "torch.nn.Module",
         scaler_path: Optional[Path] = None,
+        calibrator: Optional[object] = None,
         parent_run_id: Optional[str] = None,
         run_name: str = "train",
         input_size: Optional[int] = None,
@@ -109,6 +110,20 @@ class MLflowRegistry:
             # Scaler artifact (optional)
             if scaler_path and Path(scaler_path).exists():
                 mlflow.log_artifact(str(scaler_path), artifact_path="scaler")
+
+            # Calibrator artifact — Platt scaling (present on final training runs only)
+            if calibrator is not None:
+                import os
+                import pickle
+                import tempfile
+
+                with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as _tmp:
+                    pickle.dump(calibrator, _tmp)
+                    _tmp_path = _tmp.name
+                try:
+                    mlflow.log_artifact(_tmp_path, artifact_path="calibrator")
+                finally:
+                    os.unlink(_tmp_path)
 
             # Model
             mlflow.pytorch.log_model(

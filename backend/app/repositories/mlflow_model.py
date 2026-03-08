@@ -33,6 +33,7 @@ class MLflowModelRepository:
         self._alias = alias
         self._tracking_uri = tracking_uri or os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
         self._model: torch.nn.Module | None = None
+        self._calibrator: object | None = None  # PlattCalibrator loaded alongside model
 
     # ── ModelRepository protocol ──────────────────────────────────────────────
 
@@ -55,6 +56,21 @@ class MLflowModelRepository:
         self._model.eval()
         log.info("Model loaded ✓")
 
+        # Load Platt calibrator from the same MLflow run (if present).
+        # Absent on models trained before calibration was introduced → silent fallback.
+        import pickle
+
+        try:
+            client = mlflow.tracking.MlflowClient(tracking_uri=self._tracking_uri)
+            version = client.get_model_version_by_alias(self._model_name, self._alias)
+            local_path = client.download_artifacts(version.run_id, "calibrator/calibrator.pkl")
+            with open(local_path, "rb") as _f:
+                self._calibrator = pickle.load(_f)
+            log.info("Calibrator loaded ✓ (Platt scaling active)")
+        except Exception as _exc:
+            log.warning("Calibrator not found (%s) — falling back to raw sigmoid", _exc)
+            self._calibrator = None
+
     def predict(self, X: np.ndarray) -> np.ndarray:
         """
         Parameters
@@ -71,10 +87,13 @@ class MLflowModelRepository:
         # LSTM expects (batch, seq_len=1, features)
         tensor = torch.from_numpy(X.astype("float32")).unsqueeze(1)
         with torch.no_grad():
-            raw = self._model(tensor)
-            # Model may output logits (LSTMLogits) or probabilities (LSTMClassifier)
-            scores = torch.sigmoid(raw) if raw.max() > 1 or raw.min() < 0 else raw
-        return scores.numpy().flatten()
+            logits = self._model(tensor).squeeze(-1).numpy().flatten()
+
+        if self._calibrator is not None:
+            # Platt-calibrated probabilities aligned to the true class prior (~17 %)
+            return self._calibrator.predict_proba(logits).astype("float32")
+        # Fallback for models without calibrator (pre-calibration MLflow versions)
+        return (1.0 / (1.0 + np.exp(-logits))).astype("float32")
 
     @property
     def is_loaded(self) -> bool:

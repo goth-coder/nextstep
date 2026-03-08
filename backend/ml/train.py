@@ -167,12 +167,18 @@ def train(
     loss_curve = loop.fit(model, X_train, y_train)
     train_loss = loss_curve[-1]
 
-    # 3. Threshold (val set)
+    # 3. Calibrate (val set) — remap logits to the true class prior (~17 %)
+    # WeightedRandomSampler trains on 50/50 batches, so raw sigmoid is calibrated
+    # for P=0.5. PlattCalibrator fits sigmoid(A·logit + B) to recover the real prior
+    # so the threshold transfers across the temporal split (val 22→23, test 23→24).
     evaluator = Evaluator()
-    threshold, val_f1_internal = evaluator.find_threshold(model, X_val, y_val)
+    calibrator = evaluator.fit_calibrator(model, X_val, y_val)
 
-    # 4. Evaluate (test set)
-    result = evaluator.evaluate(model, X_test, y_test, threshold, val_f1_internal, train_loss)
+    # 4. Threshold (val set, calibrated probs)
+    threshold, val_f1_internal = evaluator.find_threshold(model, X_val, y_val, calibrator)
+
+    # 5. Evaluate (test set, calibrated probs)
+    result = evaluator.evaluate(model, X_test, y_test, threshold, val_f1_internal, train_loss, calibrator)
 
     # 5. Quality gate
     # Gate on test_f1_oracle (best achievable F1 on test set) rather than the
@@ -204,6 +210,7 @@ def train(
         result=result,
         model=model,
         scaler_path=SCALER_PATH,
+        calibrator=calibrator,
         parent_run_id=parent_run_id,
         run_name="train",
         input_size=input_size,

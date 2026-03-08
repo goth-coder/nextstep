@@ -1,4 +1,4 @@
-from .evaluator import EvalResult, Evaluator
+from .evaluator import EvalResult, Evaluator, PlattCalibrator
 from .registry import MLflowRegistry
 from .trainer import TrainConfig, TrainingLoop
 
@@ -8,4 +8,5 @@ __all__ = [
     "Evaluator",
     "EvalResult",
     "MLflowRegistry",
+    "PlattCalibrator",
 ]
