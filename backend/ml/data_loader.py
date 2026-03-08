@@ -14,7 +14,11 @@ Exemplos:
   def=-2, próximo=-1 → y=0  (melhorou)
   def= 0, próximo=-1 → y=1  (começou a defasar ✓)
   def= 1, próximo= 0 → y=0  (ainda adiantado, menos)
- 
+
+NOTE: o target antigo era (defasagem_next < 0) — "o aluno está defasado?"
+Isso é o estado atual, não a transição. Foi corrigido para capturar a
+direção do movimento: predict P(piora) dado o estado de hoje.
+
 Training pairs (temporal, no leakage):
   • Train — year 2022 features → defasagem 2023 label  (600 pairs)
   • Test  — year 2023 features → defasagem 2024 label  (765 pairs)
@@ -22,9 +26,8 @@ Training pairs (temporal, no leakage):
 Inference:
   • All 2024 students (1 156) → predict risk for the 2025 cycle.
 
-Feature set (INPUT_SIZE = 11):
-  IAA, IEG, IPS, IDA, IPV, INDE (imputed), defasagem_t (current year raw int), fase_num (0-8),
-  gender, age, INDE_missing (1.0 if INDE was absent, 0.0 otherwise)
+Feature set (INPUT_SIZE = 8):
+  IAA, IEG, IPS, IDA, IPV, INDE (imputed), defasagem_t (current year raw int), fase_num (0-8)
 
 Note on defasagem feature vs target:
   - Feature: defasagem (year t) — current lag value, strong but legitimate predictor
@@ -38,6 +41,10 @@ Display-only (stored in students_meta, NOT passed to the model):
 Dropped from model entirely:
   IAN  — leakage (corr 0.84-0.87 with target by definition)
   defasagem_bin — derived manually, redundant
+
+Usage:
+    python ml/data_loader.py
+    DATA_PATH=/path/to/xlsx python ml/data_loader.py
 """
 
 from __future__ import annotations
@@ -76,8 +83,8 @@ _XLSX_CANDIDATES = [
 # ── Feature constants ──────────────────────────────────────────────────────────
 # IPP excluded from model features: absent in 2022 (100% synthetic if imputed for train pairs).
 # IPP is still stored in students_meta for frontend display.
-FEATURES = ["IAA", "IEG", "IPS", "IDA", "IPV", "INDE", "defasagem", "fase_num", "gender", "age", "INDE_missing"]
-INPUT_SIZE = len(FEATURES)  # 11
+FEATURES = ["IAA", "IEG", "IPS", "IDA", "IPV", "INDE", "defasagem", "fase_num", "gender", "age"]
+INPUT_SIZE = len(FEATURES)  # 10
 
 
 # ── Demographic helpers ───────────────────────────────────────────────────────
@@ -238,8 +245,7 @@ def run_etl() -> None:
     # ── 3. Temporal train/test pairs ─────────────────────────────────────────
     # IPP is NOT a model feature (absent in 2022 → would be 100% synthetic for train pairs).
     # IPP is stored separately in students_meta for frontend display only.
-    # INDE is excluded from required cols — null INDE rows are recovered via imputation + flag.
-    FEATURE_SOURCE_COLS_REQUIRED = ["IAA", "IEG", "IPS", "IDA", "IPV", "defasagem", "fase_num", "gender", "age"]
+    FEATURE_SOURCE_COLS = ["IAA", "IEG", "IPS", "IDA", "IPV", "INDE", "defasagem", "fase_num", "gender", "age"]
 
     def make_pairs(df_t: pd.DataFrame, df_t1: pd.DataFrame, label: str) -> tuple[pd.DataFrame, pd.Series]:
         shared = set(df_t["RA"]) & set(df_t1["RA"])
@@ -251,9 +257,8 @@ def run_etl() -> None:
         # y=0 → manteve ou melhorou
         y = (merged["defasagem_raw_next"] < merged["defasagem"]).astype("float32")
 
-        # Drop rows with ANY null in required feature columns (no imputation strategy).
-        # INDE is NOT in this list — null INDE rows are recovered via imputation + missing flag.
-        available = [c for c in FEATURE_SOURCE_COLS_REQUIRED if c in merged.columns]
+        # Drop rows with ANY null in feature source columns (systematic non-evaluation)
+        available = [c for c in FEATURE_SOURCE_COLS if c in merged.columns]
         before = len(merged)
         mask_null = merged[available].isna().any(axis=1)
         dropped = int(mask_null.sum())
@@ -275,26 +280,11 @@ def run_etl() -> None:
         y_test.mean() * 100,
     )
 
-    # ── 4. INDE imputation + missing flag (post-split, no leakage) ───────────
-    # Median fitted ONLY on train rows where INDE is not null → no leakage.
-    inde_train_median = (
-        float(train_df["INDE"].median()) if "INDE" in train_df.columns and not train_df["INDE"].isna().all() else 7.0
-    )
-    train_df = train_df.copy()
-    train_df["INDE_missing"] = train_df["INDE"].isna().astype("float32")
-    train_df["INDE"] = train_df["INDE"].fillna(inde_train_median)
-    test_df = test_df.copy()
-    test_df["INDE_missing"] = test_df["INDE"].isna().astype("float32")
-    test_df["INDE"] = test_df["INDE"].fillna(inde_train_median)
-    log.info(
-        "INDE imputation — train_median=%.4f  train_missing=%d  test_missing=%d",
-        inde_train_median,
-        int(train_df["INDE_missing"].sum()),
-        int(test_df["INDE_missing"].sum()),
-    )
-
     # ── 5. Inference set: impute ALL nulls (can't drop enrolled students) ─────
     # Imputation params fitted on train only to avoid leakage.
+    inde_median = (
+        float(train_df["INDE"].median()) if "INDE" in train_df.columns and not train_df["INDE"].isna().all() else 7.0
+    )
     indicator_medians = {
         col: float(train_df[col].median())
         for col in ["IAA", "IEG", "IPS", "IDA", "IPV", "defasagem", "gender", "age"]
@@ -308,9 +298,7 @@ def run_etl() -> None:
     # INDE
     if "INDE" not in d24_clean.columns:
         d24_clean["INDE"] = np.nan
-    d24_clean["INDE"] = pd.to_numeric(d24_clean["INDE"], errors="coerce")
-    d24_clean["INDE_missing"] = d24_clean["INDE"].isna().astype("float32")  # flag before fillna
-    d24_clean["INDE"] = d24_clean["INDE"].fillna(inde_train_median)
+    d24_clean["INDE"] = pd.to_numeric(d24_clean["INDE"], errors="coerce").fillna(inde_median)
     # Other model indicators
     for col, med in indicator_medians.items():
         if col in d24_clean.columns:
