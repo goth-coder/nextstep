@@ -48,7 +48,7 @@ def _make_sheet(
     df = pd.DataFrame(data)
 
     # Introduce a few NaN values in indicator columns (real data has gaps)
-    for col in ["IAA", "IEG", "IPS", "IDA", "IPV"]:
+    for col in ["IAA", "IEG", "IPS", "IDA", "IPV", "INDE"]:
         null_mask = rng.random(n) < null_fraction
         df.loc[null_mask, col] = np.nan
 
@@ -144,7 +144,7 @@ def test_inference_tensor_shape(etl_result):
 
 
 def test_no_nan_in_train(etl_result):
-    """X_train must have no NaN — null rows are dropped during pair-building."""
+    """X_train must have no NaN — null rows are dropped or imputed during pair-building."""
     X = np.load(etl_result["processed_dir"] / "X_train.npy")
     assert not np.isnan(X).any(), "X_train contains NaN values"
 
@@ -202,3 +202,72 @@ def test_binary_labels(etl_result):
         y = np.load(etl_result["processed_dir"] / fname)
         unique = set(np.unique(y))
         assert unique <= {0.0, 1.0}, f"{fname} has unexpected label values: {unique}"
+
+
+def test_inde_missing_rows_preserved(tmp_path: Path):
+    """Rows with INDE=null must be kept in pairs (INDE imputed, INDE_missing=1).
+
+    We compare pair counts from two ETL runs:
+      - one with INDE nulls (null_fraction=0.5 on INDE column)
+      - one without INDE nulls
+    The run WITH nulls must have >= rows because those rows are now recovered.
+    """
+    rng = np.random.default_rng(0)
+    n = 40
+    ras = [f"RA-{i:04d}" for i in range(1, n + 1)]
+
+    def make_sheet(year, inde_null_fraction=0.0):
+        df = pd.DataFrame({
+            "RA": ras,
+            "Nome": [f"ALUNO-{r}" for r in ras],
+            "Fase": rng.integers(1, 6, n).astype(str),
+            "Turma": rng.choice(["A", "B"], n),
+            "IAA": rng.uniform(4, 10, n),
+            "IEG": rng.uniform(3, 10, n),
+            "IPS": rng.uniform(4, 10, n),
+            "IDA": rng.uniform(3, 10, n),
+            "IPV": rng.uniform(4, 10, n),
+            "IPP": rng.uniform(4, 10, n),
+            "INDE": rng.uniform(4, 10, n),
+            "defasagem": rng.integers(-3, 2, n).astype(float),
+            "defasagem_raw": rng.integers(-3, 2, n).astype(float),
+            "fase_num": rng.integers(0, 7, n),
+            "gender": rng.integers(0, 2, n),
+            "age": rng.uniform(8, 18, n),
+            "year": year,
+        })
+        if inde_null_fraction > 0:
+            mask = rng.random(n) < inde_null_fraction
+            df.loc[mask, "INDE"] = np.nan
+        return df
+
+    def run_with(processed_dir, inde_null_fraction):
+        d22 = make_sheet(2022, inde_null_fraction)
+        d23 = make_sheet(2023, inde_null_fraction)
+        d24 = make_sheet(2024, 0.0)
+        fake_xl = MagicMock()
+        mapping = {2022: d22, 2023: d23, 2024: d24}
+        with (
+            patch("ml.data_loader._find_xlsx", return_value="fake.xlsx"),
+            patch("ml.data_loader.pd.ExcelFile", return_value=fake_xl),
+            patch("ml.data_loader._load_sheet", side_effect=lambda xl, s, y: mapping[y]),
+            patch("ml.data_loader.PROCESSED_DIR", processed_dir),
+            patch("ml.data_loader.os.environ.get", side_effect=lambda k, d="": "" if k == "GCS_BUCKET" else d),
+        ):
+            from ml.data_loader import run_etl
+            run_etl()
+        return np.load(processed_dir / "X_train.npy").shape[0]
+
+    dir_clean = tmp_path / "clean"
+    dir_clean.mkdir()
+    dir_nulls = tmp_path / "nulls"
+    dir_nulls.mkdir()
+
+    n_clean = run_with(dir_clean, inde_null_fraction=0.0)
+    n_nulls = run_with(dir_nulls, inde_null_fraction=0.5)
+
+    # With INDE nulls: rows that previously would have been dropped are now kept.
+    assert n_nulls >= n_clean, (
+        f"Expected INDE-null run to have >= pairs than clean run, "
+        f"got {n_nulls} vs {n_clean}"
+    )
