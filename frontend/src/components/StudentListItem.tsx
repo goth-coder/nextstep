@@ -34,10 +34,10 @@ export default function StudentListItem({ student, onClick }: StudentListItemPro
         transition: 'background 0.15s',
       }}
       onMouseEnter={(e) => {
-        ;(e.currentTarget as HTMLElement).style.background = '#f9fafb'
+        (e.currentTarget as HTMLElement).style.background = '#f9fafb'
       }}
       onMouseLeave={(e) => {
-        ;(e.currentTarget as HTMLElement).style.background = 'transparent'
+        (e.currentTarget as HTMLElement).style.background = 'transparent'
       }}
     >
       <span style={{ fontWeight: 500, color: '#111827' }}>{student.display_name}</span>

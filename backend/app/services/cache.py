@@ -119,9 +119,6 @@ class StudentCacheService:
     def last_attempt_at(self) -> str | None:
         return self._last_attempt_at
 
-    def attempts(self) -> int:
-        return self._attempt_count
-
     def predict_one(self, raw_features: dict) -> float:
         """On-demand inference for arbitrary indicator values (bypasses cache)."""
         if not self._ready:
