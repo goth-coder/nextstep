@@ -78,11 +78,15 @@ class _Objective:
     def __call__(self, trial: optuna.Trial) -> float:
         import lightgbm as lgb
 
+        # n_estimators is NOT tuned: early stopping controls convergence,
+        # which decouples it from learning_rate and avoids undertrained models.
+        # lr lower-bound raised to 1e-2 to avoid ultra-slow runs that need
+        # thousands of trees to converge (search space was 1e-3 before).
         params = {
             "num_leaves": trial.suggest_int("num_leaves", 20, 150),
             "max_depth": trial.suggest_int("max_depth", 3, 10),
-            "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.3, log=True),
-            "n_estimators": trial.suggest_int("n_estimators", 50, 500),
+            "learning_rate": trial.suggest_float("learning_rate", 1e-2, 0.3, log=True),
+            "n_estimators": 4000,  # ceiling; early stopping decides the actual count
             "subsample": trial.suggest_float("subsample", 0.5, 1.0),
             "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 1.0),
             "reg_alpha": trial.suggest_float("reg_alpha", 0.0, 5.0),
@@ -95,14 +99,23 @@ class _Objective:
         }
 
         log.info(
-            "[Trial %d/%d] leaves=%d  depth=%d  lr=%.4f  n_est=%d  spw=%.2f",
+            "[Trial %d/%d] leaves=%d  depth=%d  lr=%.4f  spw=%.2f",
             trial.number + 1, self._n_trials,
             params["num_leaves"], params["max_depth"], params["learning_rate"],
-            params["n_estimators"], params["scale_pos_weight"],
+            params["scale_pos_weight"],
         )
 
         model = lgb.LGBMClassifier(**params)
-        model.fit(self._X_tr, self._y_tr.astype(int))
+        model.fit(
+            self._X_tr, self._y_tr.astype(int),
+            eval_set=[(self._X_val, self._y_val.astype(int))],
+            callbacks=[
+                lgb.early_stopping(stopping_rounds=50, verbose=False),
+                lgb.log_evaluation(-1),
+            ],
+        )
+        actual_trees = model.best_iteration_ or model.n_estimators_
+        log.info("[Trial %d/%d] early-stopped at %d trees", trial.number + 1, self._n_trials, actual_trees)
 
         calibrator = fit_calibrator(model, self._X_val, self._y_val)
         threshold, val_f1 = find_threshold(model, self._X_val, self._y_val, calibrator)
@@ -116,7 +129,8 @@ class _Objective:
             "  ← NEW BEST" if is_best else "",
         )
 
-        # Log trial as child MLflow run
+        # Log trial as child MLflow run; replace ceiling with actual trees used
+        logged_params = {**params, "n_estimators": model.best_iteration_ or model.n_estimators_}
         from training.evaluator import EvalResult
         trial_result = EvalResult(
             threshold=threshold,
@@ -127,12 +141,13 @@ class _Objective:
             train_loss=0.0,
         )
         _log_run(
-            params=params,
+            params=logged_params,
             result=trial_result,
             model=model,
             calibrator=calibrator,
             parent_run_id=self._parent_run_id,
             run_name=f"lgbm-trial-{trial.number}",
+            experiment_name=HPO_EXPERIMENT,
         )
 
         log.info("Trial %d — val_f1=%.4f  threshold=%.4f", trial.number, val_f1, threshold)
@@ -176,7 +191,9 @@ def main() -> None:
         log.info("  %-22s = %s", k, v)
     log.info("━" * 60)
 
-    best_params = {**DEFAULT_PARAMS, **study.best_params}
+    # n_estimators is not part of study.best_params (uses early stopping);
+    # set ceiling high so final train_lgbm also relies on early stopping.
+    best_params = {**DEFAULT_PARAMS, **study.best_params, "n_estimators": 2000}
 
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     BEST_PARAMS_PATH.write_text(json.dumps(best_params, indent=2))

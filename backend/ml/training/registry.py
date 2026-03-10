@@ -7,6 +7,7 @@ SRP: knows nothing about PyTorch training or data loading.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Sequence
 
@@ -115,18 +116,17 @@ class MLflowRegistry:
                 mlflow.log_artifact(str(scaler_path), artifact_path="scaler")
 
             # Calibrator artifact — Platt scaling (present on final training runs only)
+            # File must be named "calibrator.pkl" so mlflow_model.py can find it at
+            # the deterministic path "calibrator/calibrator.pkl".
             if calibrator is not None:
-                import os
                 import pickle
                 import tempfile
 
-                with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as _tmp:
-                    pickle.dump(calibrator, _tmp)
-                    _tmp_path = _tmp.name
-                try:
+                with tempfile.TemporaryDirectory() as _tmp_dir:
+                    _tmp_path = os.path.join(_tmp_dir, "calibrator.pkl")
+                    with open(_tmp_path, "wb") as _f:
+                        pickle.dump(calibrator, _f)
                     mlflow.log_artifact(_tmp_path, artifact_path="calibrator")
-                finally:
-                    os.unlink(_tmp_path)
 
             # Model
             mlflow.pytorch.log_model(

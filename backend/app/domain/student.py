@@ -35,9 +35,10 @@ class Indicators:
     iaa: Optional[float] = None  # Índice de Aproveitamento Acadêmico
     ieg: Optional[float] = None  # Índice de Engajamento
     ips: Optional[float] = None  # Índice Psicossocial
-    ida: Optional[float] = None  # Índice de Autoavaliação / Autossuficiência
+    ida: Optional[float] = None  # Índice de Aprendizagem
     ipv: Optional[float] = None  # Índice de Ponto de Virada
     ipp: Optional[float] = None  # Índice Psicopedagógico
+    ian: Optional[float] = None  # Índice de Adequação ao Nível
     inde: Optional[float] = None  # Índice de Desenvolvimento Educacional (composite)
     defasagem: Optional[float] = None  # Defasagem escolar no ano atual (raw int, não scaled)
     fase_num: Optional[int] = None  # Fase normalizada (0=ALFA .. 8=universitário)
@@ -50,6 +51,7 @@ class Indicators:
             "ida": self.ida,
             "ipv": self.ipv,
             "ipp": self.ipp,
+            "ian": self.ian,
             "inde": self.inde,
             "defasagem": self.defasagem,
             "fase_num": self.fase_num,

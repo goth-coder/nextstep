@@ -12,8 +12,8 @@ import pytest
 
 from app.domain.student import Indicators, StudentRecord
 
-_IND_HIGH = Indicators(iaa=6.2, ieg=5.5, ips=4.3, ida=3.7, ipv=3.1, ipp=4.0, inde=4.5, defasagem=-2)
-_IND_LOW  = Indicators(iaa=9.0, ieg=8.8, ips=7.7, ida=9.1, ipv=9.2, ipp=8.5, inde=9.0, defasagem=0)
+_IND_HIGH = Indicators(iaa=6.2, ieg=5.5, ips=4.3, ida=3.7, ipv=3.1, ipp=4.0, ian=5.8, inde=4.5, defasagem=-2)
+_IND_LOW  = Indicators(iaa=9.0, ieg=8.8, ips=7.7, ida=9.1, ipv=9.2, ipp=8.5, ian=8.0, inde=9.0, defasagem=0)
 
 REC_HIGH = StudentRecord.build(
     student_id=1, ra="RA-1", display_name="ALUNO-1",

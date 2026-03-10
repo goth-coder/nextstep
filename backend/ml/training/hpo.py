@@ -84,7 +84,7 @@ class HPORunner:
                 dropout=cfg.dropout,
             )
             loop = TrainingLoop(cfg, pos_weight)
-            loss_curve = loop.fit(model, X_train, y_train)
+            loss_curve = loop.fit(model, X_train, y_train, X_val=X_val, y_val=y_val)
             train_loss = loss_curve[-1]
 
             # Platt calibration: remap logits to true class prior before threshold selection.
@@ -145,9 +145,9 @@ class HPORunner:
         weight_decay = trial.suggest_float("weight_decay", 1e-5, 1e-2, log=True)
 
         # pos_weight_multiplier: scales the neg/pos class weight in BCEWithLogitsLoss.
-        # Values >1 push the model toward higher recall (fewer missed positives)
-        # at the cost of precision.  Let Optuna find the best precision-recall tradeoff.
-        pos_weight_multiplier = trial.suggest_float("pos_weight_multiplier", 0.5, 4.0)
+        # WeightedRandomSampler already balances batches to ~50/50, so values above
+        # ~2.0 double-compensate the imbalance and cause logit saturation (train_loss→0).
+        pos_weight_multiplier = trial.suggest_float("pos_weight_multiplier", 0.5, 2.0)
 
         # PyTorch LSTM dropout only applies between layers (num_layers > 1).
         # For single-layer models weight_decay is the sole regulariser.

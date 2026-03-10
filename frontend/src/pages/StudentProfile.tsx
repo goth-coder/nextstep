@@ -15,13 +15,14 @@ const INDICATOR_LABELS: Record<string, string> = {
   iaa: 'IAA — Academic Performance',
   ieg: 'IEG — Engagement',
   ips: 'IPS — Psychosocial',
-  ida: 'IDA — Self-sufficiency',
+  ida: 'IDA — Learning',
   ipv: 'IPV — Life Vision',
   ipp: 'IPP — Psychopedagogical',
+  ian: 'IAN — Level Adequacy',
   inde: 'INDE — Development Index',
 }
 
-const ZERO_SUSPICIOUS = new Set(['iaa', 'ieg', 'ips', 'ida', 'ipv', 'ipp', 'inde'])
+const ZERO_SUSPICIOUS = new Set(['iaa', 'ieg', 'ips', 'ida', 'ipv', 'ipp', 'ian', 'inde'])
 
 function IndicatorCard({ label, indicatorKey, val }: {
   label: string

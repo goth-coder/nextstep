@@ -55,11 +55,62 @@ services:
       - "3000:80"
     environment:
       - BACKEND_URL=http://api:8080
+      - BACKEND_HOST=api:8080
     depends_on:
       - api
     networks:
       - nextstep-net
     restart: unless-stopped
+
+  # ── Local training (not started by default) ────────────────────────────────
+  # Usage:
+  #   docker compose run --rm train                         # train lgbm (no HPO)
+  #   docker compose run --rm -e TRIALS=30 train           # lgbm + 30 HPO trials
+  #   docker compose run --rm -e MODEL_TYPE=lstm train     # train LSTM
+  #   docker compose run --rm -e MODEL_TYPE=lgbm -e TRIALS=20 train
+  train:
+    profiles: [train]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        TRIALS=$${TRIALS:-0}
+        MODEL_TYPE=$${MODEL_TYPE:-lgbm}
+        echo "▶ data_loader..."
+        python ml/data_loader.py
+        echo "▶ training MODEL_TYPE=$$MODEL_TYPE  TRIALS=$$TRIALS"
+        if [ "$$MODEL_TYPE" = "lgbm" ]; then
+          if [ "$$TRIALS" -gt 0 ] 2>/dev/null; then
+            python ml/tune_lgbm.py --trials "$$TRIALS"
+          else
+            python ml/train_lgbm.py
+          fi
+        else
+          if [ "$$TRIALS" -gt 0 ] 2>/dev/null; then
+            python ml/tune.py --trials "$$TRIALS"
+          else
+            python ml/train.py
+          fi
+        fi
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - DATA_PATH=/app/data/raw/BASE DE DADOS PEDE 2022-2024 - DATATHON.xlsx
+      - GIT_PYTHON_REFRESH=quiet
+      - TRIALS
+      - MODEL_TYPE
+    volumes:
+      - ./backend/data:/app/data
+      - ./mlruns:/mlruns
+      - ./backend/ml:/app/ml
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    networks:
+      - nextstep-net
 
 networks:
   nextstep-net:

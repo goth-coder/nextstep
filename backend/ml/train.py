@@ -164,7 +164,7 @@ def train(
 
     # 2. Train
     loop = TrainingLoop(cfg, pos_weight)
-    loss_curve = loop.fit(model, X_train, y_train)
+    loss_curve = loop.fit(model, X_train, y_train, X_val=X_val, y_val=y_val)
     train_loss = loss_curve[-1]
 
     # 3. Calibrate (val set) — remap logits to the true class prior (~17 %)

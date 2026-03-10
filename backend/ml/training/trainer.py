@@ -13,7 +13,8 @@ from typing import TYPE_CHECKING, Callable  # noqa: F401 — Callable used in st
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset, WeightedRandomSampler
+import numpy as np
+from torch.utils.data import DataLoader, TensorDataset
 
 if TYPE_CHECKING:
     pass  # Callable already imported above for string annotations
@@ -74,6 +75,9 @@ class TrainingLoop:
         X_train: torch.Tensor,
         y_train: torch.Tensor,
         *,
+        X_val: torch.Tensor | None = None,
+        y_val: torch.Tensor | None = None,
+        patience: int = 15,
         step_callback: "Callable[[int, float], None] | None" = None,
     ) -> list[float]:
         """
@@ -83,54 +87,50 @@ class TrainingLoop:
             model: initialised LSTMClassifier (will be mutated).
             X_train: (N, 1, input_size) float32 tensor.
             y_train: (N,) float32 binary labels.
+            X_val / y_val: optional validation tensors for early stopping.
+                When provided, training stops when val F1 has not improved
+                for `patience` consecutive epochs (best model weights restored).
+            patience: early-stopping patience in epochs (default 15).
             step_callback: optional fn(epoch, loss) for HPO pruning hooks.
         """
         torch.manual_seed(self._cfg.seed)
-        # WeightedRandomSampler (below) already makes every batch ~50/50
-        # positive/negative.  Applying the raw neg/pos ratio (~4.8×) on top via
-        # BCEWithLogitsLoss(pos_weight=...) would double-compensate for the
-        # imbalance, pushing the model toward extremely high recall at the cost
-        # of precision and collapsing F1.
-        #
-        # With balanced batches the "neutral" pos_weight is 1.0.
-        # pos_weight_multiplier then becomes the sole precision/recall dial:
-        #   < 1.0  →  precision-biased
-        #   = 1.0  →  balanced (neutral, correct for balanced sampler)
-        #   > 1.0  →  recall-biased
-        # Optuna searches this in [0.5, 4.0], giving it full freedom.
-        scaled_pw = torch.tensor([self._cfg.pos_weight_multiplier])
-        criterion = nn.BCEWithLogitsLoss(pos_weight=scaled_pw)
+        # pos_weight: effective class weight = base neg/pos ratio × multiplier.
+        # The model sees the TRUE 17% positive rate in every mini-batch (no
+        # artificial resampling), so BCEWithLogitsLoss(pos_weight=...) is the
+        # sole lever for class-imbalance compensation.
+        # pos_weight_multiplier then adjusts the precision/recall tradeoff:
+        #   < 1.0  →  precision-biased (fewer false alarms)
+        #   = 1.0  →  full theoretical compensation for the neg/pos ratio
+        #   > 1.0  →  recall-biased (fewer missed positives)
+        # NOT using WeightedRandomSampler: it was forcing 50/50 batches, which
+        # caused logit saturation (train_loss → 0, bimodal score distribution).
+        effective_pw = self._pos_weight * self._cfg.pos_weight_multiplier
+        criterion = nn.BCEWithLogitsLoss(pos_weight=effective_pw)
         optimizer = torch.optim.Adam(model.parameters(), lr=self._cfg.lr, weight_decay=self._cfg.weight_decay)
 
+        # Early stopping state
+        _use_early_stop = X_val is not None and y_val is not None
+        _best_val_f1 = -1.0
+        _best_state: dict | None = None
+        _patience_left = patience
+
         ds = TensorDataset(X_train, y_train)
-        # WeightedRandomSampler: ensure each batch has a balanced view of the
-        # minority class.  With ~17% positives and batch_size≤64, random
-        # shuffling can produce all-negative batches → wasted gradient steps.
-        labels_np = y_train.numpy()
-        n_pos = int(labels_np.sum())
-        n_neg = len(labels_np) - n_pos
-        sample_weights = torch.where(
-            y_train == 1,
-            torch.tensor(1.0 / max(n_pos, 1)),
-            torch.tensor(1.0 / max(n_neg, 1)),
-        )
-        sampler = WeightedRandomSampler(
-            weights=sample_weights,
-            num_samples=len(sample_weights),
-            replacement=True,
-        )
-        loader = DataLoader(ds, batch_size=self._cfg.batch_size, sampler=sampler)
+        loader = DataLoader(ds, batch_size=self._cfg.batch_size, shuffle=True)
 
         loss_curve: list[float] = []
         model.train()
         n = len(X_train)
 
         for epoch in range(1, self._cfg.epochs + 1):
+            model.train()
             epoch_loss = 0.0
             for Xb, yb in loader:
                 optimizer.zero_grad()
                 loss = criterion(model(Xb), yb)
                 loss.backward()
+                # Gradient clipping: prevents logit saturation that causes train_loss→0
+                # and bimodal score distribution. Max norm of 1.0 is conservative.
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
                 epoch_loss += loss.item() * len(Xb)
 
@@ -140,7 +140,38 @@ class TrainingLoop:
             if step_callback:
                 step_callback(epoch, avg)
 
+            # Early stopping: monitor val F1 every 5 epochs to reduce overhead
+            if _use_early_stop and epoch % 5 == 0:
+                from sklearn.metrics import f1_score
+                model.eval()
+                with torch.no_grad():
+                    val_logits = model(X_val).squeeze(-1).numpy()
+                # Use sigmoid probs directly (no calibrator during training loop)
+                val_probs = 1.0 / (1.0 + np.exp(-val_logits))
+                # Dynamic threshold: midpoint of prob range
+                thresh = float(val_probs.mean())
+                val_preds = (val_probs >= thresh).astype(int)
+                val_f1 = float(f1_score(y_val.numpy().astype(int), val_preds, zero_division=0))
+                if val_f1 > _best_val_f1:
+                    _best_val_f1 = val_f1
+                    import copy
+                    _best_state = copy.deepcopy(model.state_dict())
+                    _patience_left = patience
+                else:
+                    _patience_left -= 1
+                    if _patience_left <= 0:
+                        log.info(
+                            "Early stopping at epoch %d — best val_f1=%.4f  train_loss=%.4f",
+                            epoch, _best_val_f1, avg,
+                        )
+                        break
+
             if epoch % 10 == 0 or epoch == self._cfg.epochs:
                 log.info("Epoch %d/%d — train_loss=%.4f", epoch, self._cfg.epochs, avg)
+
+        # Restore best weights if early stopping was active
+        if _use_early_stop and _best_state is not None:
+            model.load_state_dict(_best_state)
+            log.info("Restored best model weights (val_f1=%.4f)", _best_val_f1)
 
         return loss_curve

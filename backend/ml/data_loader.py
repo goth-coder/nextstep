@@ -26,8 +26,8 @@ Training pairs (temporal, no leakage):
 Inference:
   • All 2024 students (1 156) → predict risk for the 2025 cycle.
 
-Feature set (INPUT_SIZE = 8):
-  IAA, IEG, IPS, IDA, IPV, INDE (imputed), defasagem_t (current year raw int), fase_num (0-8)
+Feature set (INPUT_SIZE = 11):
+  IAA, IEG, IPS, IDA, IPV, IAN, INDE (imputed), defasagem_t (current year raw int), fase_num (0-8), gender, age
 
 Note on defasagem feature vs target:
   - Feature: defasagem (year t) — current lag value, strong but legitimate predictor
@@ -39,7 +39,11 @@ Display-only (stored in students_meta, NOT passed to the model):
   IPP — absent in 2022 (would be 100% synthetic for training pairs)
 
 Dropped from model entirely:
-  IAN  — leakage (corr 0.84-0.87 with target by definition)
+  IAN  — re-added: with the current target (direction of defasagem change) it is
+         a legitimate predictor, not leakage. Corr 0.84-0.87 was against the OLD
+         target (defasagem_next < 0), which shared construction with IAN.
+         With target = (defasagem_next < defasagem_current), IAN_t predicts
+         trajectory for t+1 across different years — no temporal leakage.
   defasagem_bin — derived manually, redundant
 
 Usage:
@@ -83,8 +87,8 @@ _XLSX_CANDIDATES = [
 # ── Feature constants ──────────────────────────────────────────────────────────
 # IPP excluded from model features: absent in 2022 (100% synthetic if imputed for train pairs).
 # IPP is still stored in students_meta for frontend display.
-FEATURES = ["IAA", "IEG", "IPS", "IDA", "IPV", "INDE", "defasagem", "fase_num", "gender", "age"]
-INPUT_SIZE = len(FEATURES)  # 10
+FEATURES = ["IAA", "IEG", "IPS", "IDA", "IPV", "IAN", "INDE", "defasagem", "fase_num", "gender", "age"]
+INPUT_SIZE = len(FEATURES)  # 11
 
 
 # ── Demographic helpers ───────────────────────────────────────────────────────
@@ -245,7 +249,7 @@ def run_etl() -> None:
     # ── 3. Temporal train/test pairs ─────────────────────────────────────────
     # IPP is NOT a model feature (absent in 2022 → would be 100% synthetic for train pairs).
     # IPP is stored separately in students_meta for frontend display only.
-    FEATURE_SOURCE_COLS = ["IAA", "IEG", "IPS", "IDA", "IPV", "INDE", "defasagem", "fase_num", "gender", "age"]
+    FEATURE_SOURCE_COLS = ["IAA", "IEG", "IPS", "IDA", "IPV", "IAN", "INDE", "defasagem", "fase_num", "gender", "age"]
 
     def make_pairs(df_t: pd.DataFrame, df_t1: pd.DataFrame, label: str) -> tuple[pd.DataFrame, pd.Series]:
         shared = set(df_t["RA"]) & set(df_t1["RA"])
@@ -287,7 +291,7 @@ def run_etl() -> None:
     )
     indicator_medians = {
         col: float(train_df[col].median())
-        for col in ["IAA", "IEG", "IPS", "IDA", "IPV", "defasagem", "gender", "age"]
+        for col in ["IAA", "IEG", "IPS", "IDA", "IPV", "IAN", "defasagem", "gender", "age"]
         if col in train_df.columns
     }
     # IPP: imputed from 2023 data for display only (not a model feature)
@@ -379,6 +383,7 @@ def run_etl() -> None:
                 "ida": _safe_float(row.get("IDA_display", row.get("IDA"))),  # original (may be 0)
                 "ipv": _safe_float(row.get("IPV")),
                 "ipp": _safe_float(row.get("IPP")),
+                "ian": _safe_float(row.get("IAN")),
                 "inde": _safe_float(row.get("INDE")),
                 "defasagem": _safe_int(row.get("defasagem")),
             }

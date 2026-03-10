@@ -40,9 +40,10 @@ _INDICATOR_LABELS: dict[str, str] = {
     "iaa": "Desempenho Acadêmico (IAA)",
     "ieg": "Engajamento (IEG)",
     "ips": "Índice Psicossocial (IPS)",
-    "ida": "Autossuficiência (IDA)",
+    "ida": "Aprendizagem (IDA)",
     "ipv": "Visão de Vida (IPV)",
     "ipp": "Índice Psicopedagógico (IPP)",
+    "ian": "Adequação ao Nível (IAN)",
     "inde": "Desenvolvimento Educacional (INDE)",
     "defasagem": "Defasagem Escolar (anos atrás)",
 }
@@ -55,6 +56,7 @@ _WEAK_THRESHOLD: dict[str, float] = {
     "ida": 5.5,
     "ipv": 5.5,
     "ipp": 5.5,
+    "ian": 5.5,
     "inde": 5.5,
 }
 

@@ -65,7 +65,7 @@ DEFAULT_PARAMS: dict = {
     "num_leaves": 31,
     "max_depth": -1,
     "learning_rate": 0.05,
-    "n_estimators": 200,
+    "n_estimators": 4000,  # ceiling; early stopping controls the actual count
     "subsample": 0.8,
     "colsample_bytree": 0.8,
     "reg_alpha": 0.1,
@@ -204,9 +204,10 @@ def _log_run(
     parent_run_id: str | None = None,
     run_name: str = "lgbm-train",
     input_size: int | None = None,
+    experiment_name: str | None = None,
 ) -> str:
     mlflow.set_tracking_uri(MLFLOW_URI)
-    mlflow.set_experiment(EXPERIMENT_NAME)
+    mlflow.set_experiment(experiment_name or EXPERIMENT_NAME)
 
     kwargs: dict = {"run_name": run_name, "nested": parent_run_id is not None}
     if parent_run_id:
@@ -287,8 +288,16 @@ def train_lgbm(
     )
     log.info("Training LGBMClassifier — params=%s", p)
     model = lgb.LGBMClassifier(**p)
-    model.fit(X_tr, y_tr.astype(int))
-    log.info("Fit complete — %d trees grown", model.n_estimators_)
+    model.fit(
+        X_tr, y_tr.astype(int),
+        eval_set=[(X_val, y_val.astype(int))],
+        callbacks=[
+            lgb.early_stopping(stopping_rounds=50, verbose=False),
+            lgb.log_evaluation(-1),
+        ],
+    )
+    actual_trees = model.best_iteration_ or model.n_estimators_
+    log.info("Fit complete — %d trees grown (early stopping)", actual_trees)
 
     log.info("Fitting Platt calibrator on val set (%d samples) ...", len(X_val))
     calibrator = fit_calibrator(model, X_val, y_val)

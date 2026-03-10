@@ -87,6 +87,7 @@ class PredictionService:
                 ida=meta.get("ida"),
                 ipv=meta.get("ipv"),
                 ipp=meta.get("ipp"),
+                ian=meta.get("ian"),
                 inde=meta.get("inde"),
                 defasagem=meta.get("defasagem"),
                 fase_num=meta.get("fase_num"),

@@ -64,7 +64,6 @@ class MLflowModelRepository:
             src_path = str(Path(__file__).parent.parent.parent / "ml")
             if src_path not in sys.path:
                 sys.path.insert(0, src_path)
-            import torch
             self._model = mlflow.pytorch.load_model(uri)
             self._model.eval()
             log.info("LSTM model loaded ✓")

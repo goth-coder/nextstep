@@ -39,6 +39,7 @@ export interface Indicators {
   ida: number | null
   ipv: number | null
   ipp: number | null
+  ian: number | null
   inde: number | null
   defasagem: number | null
 }
