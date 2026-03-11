@@ -137,6 +137,7 @@ def test_train_lgbm_quality_gate_skip(synthetic_arrays, monkeypatch):
         patch("ml.train_lgbm.mlflow.start_run", return_value=mock_run_ctx),
         patch("ml.train_lgbm.mlflow.set_tag"),
         patch("ml.train_lgbm.mlflow.log_params"),
+        patch("ml.train_lgbm.mlflow.log_param"),
         patch("ml.train_lgbm.mlflow.log_metrics"),
         patch("ml.train_lgbm.mlflow.log_artifact"),
         patch("ml.train_lgbm.mlflow.lightgbm.log_model"),

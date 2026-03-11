@@ -43,6 +43,11 @@ def _make_sheet(
         "fase_num": rng.integers(0, 7, n),
         "gender": rng.integers(0, 2, n),
         "age": rng.uniform(8, 18, n),
+        "mat": rng.uniform(3, 10, n),
+        "por": rng.uniform(3, 10, n),
+        "tenure": rng.integers(1, 6, n).astype(float),
+        "n_av": rng.integers(0, 4, n).astype(float),
+        "IAN": rng.uniform(4, 10, n),
         "year": year,
     }
     df = pd.DataFrame(data)
