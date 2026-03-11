@@ -25,11 +25,17 @@ _API_TO_FEATURE = [
     ("ips", "IPS"),
     ("ida", "IDA"),
     ("ipv", "IPV"),
+    ("ian", "IAN"),
     ("inde", "INDE"),
     ("defasagem", "defasagem"),
     ("fase_num", "fase_num"),
     ("gender", "gender"),
     ("age", "age"),
+    ("mat", "mat"),
+    ("por", "por"),
+    ("tenure", "tenure"),
+    ("n_av", "n_av"),
+    ("missing_grades", "missing_grades"),
 ]
 
 
@@ -91,6 +97,10 @@ class PredictionService:
                 inde=meta.get("inde"),
                 defasagem=meta.get("defasagem"),
                 fase_num=meta.get("fase_num"),
+                mat=meta.get("mat"),
+                por=meta.get("por"),
+                tenure=meta.get("tenure"),
+                n_av=meta.get("n_av"),
             )
             record = StudentRecord.build(
                 student_id=i,
@@ -115,8 +125,9 @@ class PredictionService:
         Parameters
         ----------
         raw_features : dict
-            Lowercase API keys (iaa, ieg, ips, ida, ipv, inde,
-            defasagem, fase_num, gender, age). Missing keys default to 0.0.
+            Lowercase API keys (iaa, ieg, ips, ida, ipv, ian, inde,
+            defasagem, fase_num, gender, age, mat, por, tenure,
+            n_av, missing_grades). Missing keys default to 0.0.
 
         Returns
         -------
@@ -129,7 +140,7 @@ class PredictionService:
 
         # Build feature vector in the exact ETL column order
         row = [float(raw_features.get(api_key, 0.0)) for api_key, _ in _API_TO_FEATURE]
-        X_raw = np.array([row], dtype="float32")  # shape (1, 10)
+        X_raw = np.array([row], dtype="float32")  # shape (1, 16)
         X_scaled = scaler.transform(X_raw).astype("float32")
 
         scores = self._model_repo.predict(X_scaled)

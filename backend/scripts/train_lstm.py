@@ -32,7 +32,7 @@ _BACKEND_DIR = Path(__file__).parent.parent
 PROCESSED_DIR = _BACKEND_DIR / "data" / "processed"
 
 MODEL_NAME = "nextstep-lstm"
-INPUT_SIZE = 10  # IAA, IEG, IPS, IDA, IPV, INDE, defasagem, fase_num, gender, age
+INPUT_SIZE = 16  # matches data_loader.py FEATURES list
 HIDDEN_SIZE = 64
 NUM_LAYERS = 1
 EPOCHS = 80

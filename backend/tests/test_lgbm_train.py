@@ -16,7 +16,7 @@ import pytest
 
 N_TRAIN = 120
 N_TEST = 30
-N_FEATURES = 10  # matches INPUT_SIZE after ETL
+N_FEATURES = 16  # matches INPUT_SIZE after ETL
 
 
 @pytest.fixture()

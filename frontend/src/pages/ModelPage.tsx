@@ -26,27 +26,27 @@ const METRIC_LABELS: Record<string, { label: string; format: (v: number) => stri
   val_auc: {
     label: 'Val AUC-ROC',
     format: (v) => v.toFixed(4),
-    tip: 'Area under ROC curve on the 2024 test set. Higher = better.',
+    tip: 'Capacidade do modelo de distinguir alunos que vão piorar dos que não vão. AUC 0.82 = em 82% dos pares aleatórios, o modelo atribui risco maior ao aluno que de fato piorou. ≥0.80 = bom para dados educacionais.',
   },
   val_f1: {
     label: 'Val F1',
     format: (v) => v.toFixed(4),
-    tip: 'F1-score at the optimized threshold on the 2024 test set.',
+    tip: 'Equilíbrio entre precisão e recall no conjunto de teste (2023→2024). Com ~17% de positivos, F1 ≥0.50 indica que o modelo identifica a maioria dos alunos em risco com taxa aceitável de falsos alarmes.',
   },
   val_f1_internal: {
     label: 'Val F1 (internal)',
     format: (v) => v.toFixed(4),
-    tip: 'F1 on the last-20% validation split used for threshold selection.',
+    tip: 'F1 no split de validação (20% do treino) usado para escolher o threshold. Valor maior que Val F1 é esperado — o threshold foi otimizado para esse split. A diferença mede o quanto o threshold transfere entre períodos.',
   },
   threshold: {
     label: 'Decision threshold',
     format: (v) => v.toFixed(4),
-    tip: 'Probability cutoff chosen by PR-curve F1-max on the validation set.',
+    tip: 'Ponto de corte de probabilidade: acima = aluno classificado em risco. Escolhido automaticamente pela curva PR para maximizar F1 na validação.',
   },
   train_loss: {
     label: 'Train loss (BCE)',
     format: (v) => v.toFixed(6),
-    tip: 'Final Binary Cross-Entropy loss on the training set.',
+    tip: 'Erro médio no treino. Valores muito baixos (<0.1) podem indicar overfitting — o modelo memorizou os dados em vez de generalizar.',
   },
 }
 
@@ -226,7 +226,9 @@ export default function ModelPage() {
                 if (val === undefined) return null
                 const isGood = key === 'val_auc' || key === 'val_f1'
                 const accent = isGood
-                  ? (val >= 0.75 ? colors.riskLow : val >= 0.6 ? colors.riskMedium : colors.riskHigh)
+                  ? (key === 'val_auc'
+                    ? (val >= 0.80 ? colors.riskLow : val >= 0.70 ? colors.riskMedium : colors.riskHigh)
+                    : (val >= 0.55 ? colors.riskLow : val >= 0.45 ? colors.riskMedium : colors.riskHigh))
                   : colors.brandPrimary
                 return (
                   <div key={key} style={{
@@ -247,8 +249,20 @@ export default function ModelPage() {
               })}
             </div>
             <p style={{ fontSize: typography.sizes.xs, color: colors.gray500, marginTop: '0.75rem' }}>
-              ℹ️ Hover each metric card for a description. Green = good (AUC ≥ 0.75, F1 ≥ 0.75), yellow = acceptable, red = watch.
+              ℹ️ Passe o mouse em cada card para descrição. Verde = bom (AUC ≥ 0.80, F1 ≥ 0.55), amarelo = aceitável, vermelho = atenção.
             </p>
+            <div style={{
+              marginTop: '1rem', padding: '1rem', background: colors.gray50,
+              borderRadius: radius.md, border: `1px solid ${colors.gray200}`,
+              fontSize: typography.sizes.xs, color: colors.gray500, lineHeight: '1.6',
+            }}>
+              <strong style={{ color: colors.brandPrimary }}>O que significam essas métricas?</strong>
+              <ul style={{ margin: '0.5rem 0 0 1rem', padding: 0 }}>
+                <li><strong>AUC-ROC</strong> — Mede a capacidade de <em>ranking</em>: se pegarmos um aluno que piorou e um que não piorou, qual a chance do modelo dar score maior ao que piorou? Com ~17% de positivos e 600 pares de treino, AUC ≥ 0.80 indica boa discriminação.</li>
+                <li><strong>F1</strong> — Equilíbrio entre não deixar alunos em risco passar (recall) e não sobrecarregar a equipe com falsos alarmes (precisão). F1 = 0.55 na prática significa: de cada 100 alunos, o modelo identifica corretamente ~10 dos ~17 em risco, com ~8 falsos alarmes.</li>
+                <li><strong>F1 Internal vs F1</strong> — O F1 interno é calculado no mesmo período usado para escolher o threshold; o F1 final é no período seguinte. A diferença mede o quanto as regras do modelo transferem entre anos letivos.</li>
+              </ul>
+            </div>
           </Section>
 
           {/* ── Drift monitoring ───────────────────────────────────── */}

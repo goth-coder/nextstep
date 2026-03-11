@@ -26,8 +26,11 @@ Training pairs (temporal, no leakage):
 Inference:
   • All 2024 students (1 156) → predict risk for the 2025 cycle.
 
-Feature set (INPUT_SIZE = 11):
-  IAA, IEG, IPS, IDA, IPV, IAN, INDE (imputed), defasagem_t (current year raw int), fase_num (0-8), gender, age
+Feature set (INPUT_SIZE = 16):
+  IAA, IEG, IPS, IDA, IPV, IAN, INDE (imputed), defasagem_t (current year raw int),
+  fase_num (0-8), gender, age, mat (grade, fase-median imputed),
+  por (grade, fase-median imputed), tenure (years in ONG),
+  n_av (# evaluators), missing_grades (binary: mat/por were null)
 
 Note on defasagem feature vs target:
   - Feature: defasagem (year t) — current lag value, strong but legitimate predictor
@@ -87,8 +90,12 @@ _XLSX_CANDIDATES = [
 # ── Feature constants ──────────────────────────────────────────────────────────
 # IPP excluded from model features: absent in 2022 (100% synthetic if imputed for train pairs).
 # IPP is still stored in students_meta for frontend display.
-FEATURES = ["IAA", "IEG", "IPS", "IDA", "IPV", "IAN", "INDE", "defasagem", "fase_num", "gender", "age"]
-INPUT_SIZE = len(FEATURES)  # 11
+FEATURES = [
+    "IAA", "IEG", "IPS", "IDA", "IPV", "IAN", "INDE",
+    "defasagem", "fase_num", "gender", "age",
+    "mat", "por", "tenure", "n_av", "missing_grades",
+]
+INPUT_SIZE = len(FEATURES)  # 16
 
 
 # ── Demographic helpers ───────────────────────────────────────────────────────
@@ -206,6 +213,22 @@ def _load_sheet(xl: pd.ExcelFile, sheet: str, year: int) -> pd.DataFrame:
     else:
         df["age"] = np.nan
 
+    # Grade columns: 2022 uses "Matem"/"Portug", 2023+ uses "Mat"/"Por"
+    mat_col = next((c for c in df.columns if c.strip() in ("Mat", "Matem")), None)
+    por_col = next((c for c in df.columns if c.strip() in ("Por", "Portug")), None)
+    df["mat"] = pd.to_numeric(df[mat_col], errors="coerce") if mat_col else np.nan
+    df["por"] = pd.to_numeric(df[por_col], errors="coerce") if por_col else np.nan
+
+    # Tenure: years enrolled in the ONG
+    if "Ano ingresso" in df.columns:
+        df["tenure"] = year - pd.to_numeric(df["Ano ingresso"], errors="coerce")
+    else:
+        df["tenure"] = np.nan
+
+    # Number of evaluators (NaN → 0 = not evaluated)
+    nav_col = next((c for c in df.columns if c.strip() == "Nº Av"), None)
+    df["n_av"] = pd.to_numeric(df[nav_col], errors="coerce").fillna(0) if nav_col else 0.0
+
     return df
 
 
@@ -249,7 +272,7 @@ def run_etl() -> None:
     # ── 3. Temporal train/test pairs ─────────────────────────────────────────
     # IPP is NOT a model feature (absent in 2022 → would be 100% synthetic for train pairs).
     # IPP is stored separately in students_meta for frontend display only.
-    FEATURE_SOURCE_COLS = ["IAA", "IEG", "IPS", "IDA", "IPV", "IAN", "INDE", "defasagem", "fase_num", "gender", "age"]
+    FEATURE_SOURCE_COLS = ["IAA", "IEG", "IPS", "IDA", "IPV", "IAN", "INDE", "defasagem", "fase_num", "gender", "age", "tenure", "n_av"]
 
     def make_pairs(df_t: pd.DataFrame, df_t1: pd.DataFrame, label: str) -> tuple[pd.DataFrame, pd.Series]:
         shared = set(df_t["RA"]) & set(df_t1["RA"])
@@ -284,6 +307,32 @@ def run_etl() -> None:
         y_test.mean() * 100,
     )
 
+    # ── 4. Impute grade features (mat, por) — flag missing first ─────────────
+    train_df["missing_grades"] = train_df[["mat", "por"]].isna().any(axis=1).astype("float32")
+    test_df["missing_grades"] = test_df[["mat", "por"]].isna().any(axis=1).astype("float32")
+
+    # Fase-median imputation for mat/por — fitted on train only (no leakage)
+    _mat_fase_med = train_df.groupby("fase_num")["mat"].median().to_dict()
+    _por_fase_med = train_df.groupby("fase_num")["por"].median().to_dict()
+    _mat_global = float(train_df["mat"].median())
+    _por_global = float(train_df["por"].median())
+
+    for _df in [train_df, test_df]:
+        _mat_null = _df["mat"].isna()
+        _por_null = _df["por"].isna()
+        if _mat_null.any():
+            _df.loc[_mat_null, "mat"] = _df.loc[_mat_null, "fase_num"].map(_mat_fase_med).fillna(_mat_global)
+        if _por_null.any():
+            _df.loc[_por_null, "por"] = _df.loc[_por_null, "fase_num"].map(_por_fase_med).fillna(_por_global)
+
+    log.info(
+        "Grade imputation: train missing=%d (%.1f%%)  test missing=%d (%.1f%%)",
+        int(train_df["missing_grades"].sum()),
+        train_df["missing_grades"].mean() * 100,
+        int(test_df["missing_grades"].sum()),
+        test_df["missing_grades"].mean() * 100,
+    )
+
     # ── 5. Inference set: impute ALL nulls (can't drop enrolled students) ─────
     # Imputation params fitted on train only to avoid leakage.
     inde_median = (
@@ -291,7 +340,7 @@ def run_etl() -> None:
     )
     indicator_medians = {
         col: float(train_df[col].median())
-        for col in ["IAA", "IEG", "IPS", "IDA", "IPV", "IAN", "defasagem", "gender", "age"]
+        for col in ["IAA", "IEG", "IPS", "IDA", "IPV", "IAN", "defasagem", "gender", "age", "tenure", "n_av"]
         if col in train_df.columns
     }
     # IPP: imputed from 2023 data for display only (not a model feature)
@@ -307,6 +356,22 @@ def run_etl() -> None:
     for col, med in indicator_medians.items():
         if col in d24_clean.columns:
             d24_clean[col] = d24_clean[col].fillna(med)
+
+    # Grade features — missing indicator + fase-median imputation (train-fitted params)
+    d24_clean["mat_display"] = d24_clean["mat"].copy()
+    d24_clean["por_display"] = d24_clean["por"].copy()
+    d24_clean["missing_grades"] = d24_clean[["mat", "por"]].isna().any(axis=1).astype("float32")
+    _mat_null_inf = d24_clean["mat"].isna()
+    _por_null_inf = d24_clean["por"].isna()
+    if _mat_null_inf.any():
+        d24_clean.loc[_mat_null_inf, "mat"] = d24_clean.loc[_mat_null_inf, "fase_num"].map(_mat_fase_med).fillna(_mat_global)
+    if _por_null_inf.any():
+        d24_clean.loc[_por_null_inf, "por"] = d24_clean.loc[_por_null_inf, "fase_num"].map(_por_fase_med).fillna(_por_global)
+    log.info(
+        "Inference grade imputation: %d missing (%.1f%%)",
+        int(d24_clean["missing_grades"].sum()),
+        d24_clean["missing_grades"].mean() * 100,
+    )
 
     # Treat IEG=0 and IDA=0 as likely data-entry errors or missing records.
     # Strategy: save the original zero for frontend display, impute with phase
@@ -386,6 +451,10 @@ def run_etl() -> None:
                 "ian": _safe_float(row.get("IAN")),
                 "inde": _safe_float(row.get("INDE")),
                 "defasagem": _safe_int(row.get("defasagem")),
+                "mat": _safe_float(row.get("mat_display", row.get("mat"))),
+                "por": _safe_float(row.get("por_display", row.get("por"))),
+                "tenure": _safe_int(row.get("tenure")),
+                "n_av": _safe_int(row.get("n_av")),
             }
         )
 

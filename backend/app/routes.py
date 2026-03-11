@@ -31,6 +31,24 @@ routes_bp = Blueprint("routes", __name__)
 
 @routes_bp.get("/health")
 def health():
+    """Health check.
+    ---
+    tags:
+      - System
+    responses:
+      200:
+        description: API health status
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: ok
+            model_loaded:
+              type: boolean
+            student_count:
+              type: integer
+    """
     cache = current_app.extensions["cache"]
     payload = {
         "status": "ok",
@@ -46,6 +64,26 @@ def health():
 
 @routes_bp.get("/readyz")
 def readyz():
+    """Readiness probe.
+    ---
+    tags:
+      - System
+    responses:
+      200:
+        description: API ready
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: ready
+            model_loaded:
+              type: boolean
+            student_count:
+              type: integer
+      503:
+        description: Not ready yet
+    """
     cache = current_app.extensions["cache"]
     if not cache.is_ready():
         detail = cache.last_error() or "Model not yet loaded"
@@ -64,6 +102,40 @@ def readyz():
 
 @routes_bp.get("/api/students")
 def list_students():
+    """Lista todos os alunos com scores de risco.
+    ---
+    tags:
+      - Students
+    responses:
+      200:
+        description: Lista de alunos ordenados por risco
+        schema:
+          type: object
+          properties:
+            students:
+              type: array
+              items:
+                type: object
+                properties:
+                  student_id:
+                    type: integer
+                  display_name:
+                    type: string
+                  phase:
+                    type: string
+                  class_group:
+                    type: string
+                  risk_score:
+                    type: number
+                    nullable: true
+                  risk_tier:
+                    type: string
+                    enum: [high, medium, low]
+            total:
+              type: integer
+      503:
+        description: Dados não carregados
+    """
     cache = current_app.extensions["cache"]
     if not cache.has_students():
         detail = cache.last_error() or "Student data not yet available"
@@ -89,6 +161,77 @@ def list_students():
 
 @routes_bp.get("/api/students/<int:student_id>")
 def get_student(student_id: int):
+    """Detalhes de um aluno com indicadores.
+    ---
+    tags:
+      - Students
+    parameters:
+      - name: student_id
+        in: path
+        type: integer
+        required: true
+        description: ID do aluno
+    responses:
+      200:
+        description: Detalhes do aluno
+        schema:
+          type: object
+          properties:
+            student_id:
+              type: integer
+            display_name:
+              type: string
+            phase:
+              type: string
+            fase_num:
+              type: integer
+            class_group:
+              type: string
+            gender:
+              type: integer
+              description: "0=Feminino, 1=Masculino"
+            age:
+              type: integer
+            risk_score:
+              type: number
+              nullable: true
+            risk_tier:
+              type: string
+              enum: [high, medium, low]
+            indicators:
+              type: object
+              properties:
+                iaa:
+                  type: number
+                ieg:
+                  type: number
+                ips:
+                  type: number
+                ida:
+                  type: number
+                ipv:
+                  type: number
+                ipp:
+                  type: number
+                ian:
+                  type: number
+                inde:
+                  type: number
+                defasagem:
+                  type: integer
+                mat:
+                  type: number
+                por:
+                  type: number
+                tenure:
+                  type: integer
+                n_av:
+                  type: integer
+      404:
+        description: Aluno não encontrado
+      503:
+        description: Dados não carregados
+    """
     cache = current_app.extensions["cache"]
     if not cache.has_students():
         detail = cache.last_error() or "Student data not yet available"
@@ -118,6 +261,10 @@ def get_student(student_id: int):
                 "ian": ind.ian,
                 "inde": ind.inde,
                 "defasagem": ind.defasagem,
+                "mat": ind.mat,
+                "por": ind.por,
+                "tenure": ind.tenure,
+                "n_av": ind.n_av,
             },
         }
     ), 200
@@ -126,6 +273,38 @@ def get_student(student_id: int):
 @routes_bp.get("/api/students/<int:student_id>/advice")
 @limiter.limit("20 per hour")
 def get_advice(student_id: int):
+    """Sugestões pedagógicas geradas por LLM para um aluno.
+    ---
+    tags:
+      - Students
+    parameters:
+      - name: student_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Sugestões pedagógicas
+        schema:
+          type: object
+          properties:
+            student_id:
+              type: integer
+            advice:
+              type: string
+              description: Texto com 4 sugestões pedagógicas
+            is_fallback:
+              type: boolean
+              description: true se a LLM falhou e retornou texto padrão
+            generated_at:
+              type: string
+              format: date-time
+              nullable: true
+      404:
+        description: Aluno não encontrado
+      503:
+        description: Modelo não carregado
+    """
     cache = current_app.extensions["cache"]
     if not cache.is_ready():
         detail = cache.last_error() or "Model not yet loaded"
@@ -164,15 +343,82 @@ def get_advice(student_id: int):
 @routes_bp.post("/api/predict")
 @limiter.limit("60 per hour")
 def predict_one():
-    """
-    On-demand risk score for arbitrary indicator values.
-
-    Body (JSON) — all fields optional, missing values default to 0:
-        iaa, ieg, ips, ida, ipv, inde  : float  (0–10 scale)
-        defasagem                       : int    (negative = behind grade)
-        fase_num                        : int    (0–8)
-        gender                          : int    (0 or 1)
-        age                             : float
+    """Predição de risco on-demand para valores arbitrários.
+    ---
+    tags:
+      - Prediction
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            iaa:
+              type: number
+              description: "Índice de Aproveitamento Acadêmico (0-10)"
+            ieg:
+              type: number
+              description: "Índice de Engajamento (0-10)"
+            ips:
+              type: number
+              description: "Índice Psicossocial (0-10)"
+            ida:
+              type: number
+              description: "Índice de Aprendizagem (0-10)"
+            ipv:
+              type: number
+              description: "Índice de Visão de Vida (0-10)"
+            ian:
+              type: number
+              description: "Índice de Adequação ao Nível (0-10)"
+            inde:
+              type: number
+              description: "Índice de Desenvolvimento Educacional (0-10)"
+            defasagem:
+              type: integer
+              description: "Defasagem escolar (negativo = atrás)"
+            fase_num:
+              type: integer
+              description: "Fase (0-9)"
+            gender:
+              type: integer
+              description: "0=Feminino, 1=Masculino"
+            age:
+              type: number
+            mat:
+              type: number
+              description: "Nota de Matemática (0-10)"
+            por:
+              type: number
+              description: "Nota de Português (0-10)"
+            tenure:
+              type: integer
+              description: "Anos na ONG"
+            n_av:
+              type: integer
+              description: "Número de avaliadores"
+            missing_grades:
+              type: number
+              description: "1 se notas foram imputadas, 0 caso contrário"
+    responses:
+      200:
+        description: Score de risco
+        schema:
+          type: object
+          properties:
+            risk_score:
+              type: number
+              example: 0.7234
+            risk_tier:
+              type: string
+              enum: [high, medium, low]
+            input:
+              type: object
+      422:
+        description: Campos desconhecidos
+      503:
+        description: Modelo não carregado
     """
     cache = current_app.extensions["cache"]
     if not cache.is_ready():
@@ -180,7 +426,7 @@ def predict_one():
 
     body = request.get_json(silent=True) or {}
 
-    VALID_KEYS = {"iaa", "ieg", "ips", "ida", "ipv", "inde", "defasagem", "fase_num", "gender", "age"}
+    VALID_KEYS = {"iaa", "ieg", "ips", "ida", "ipv", "ian", "inde", "defasagem", "fase_num", "gender", "age", "mat", "por", "tenure", "n_av", "missing_grades"}
     unknown = set(body.keys()) - VALID_KEYS
     if unknown:
         return jsonify({"error": f"Unknown fields: {sorted(unknown)}"}), 422
@@ -201,17 +447,80 @@ def predict_one():
 @routes_bp.post("/api/predict/batch")
 @limiter.limit("10 per minute")
 def predict_batch():
-    """
-    Batch risk scoring — score many students in a single request.
-
-    Body (JSON):
-        { "students": [ { "student_id": 1, "iaa": 7.2, ... }, ... ] }
-
-    Each item follows the same indicator schema as POST /api/predict.
-    Missing indicator values default to 0.
-
-    Response:
-        { "results": [ { "student_id": 1, "risk_score": 0.85, "risk_tier": "high" }, ... ] }
+    """Predição de risco em lote.
+    ---
+    tags:
+      - Prediction
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - students
+          properties:
+            students:
+              type: array
+              items:
+                type: object
+                properties:
+                  student_id:
+                    type: integer
+                  iaa:
+                    type: number
+                  ieg:
+                    type: number
+                  ips:
+                    type: number
+                  ida:
+                    type: number
+                  ipv:
+                    type: number
+                  ian:
+                    type: number
+                  inde:
+                    type: number
+                  defasagem:
+                    type: integer
+                  fase_num:
+                    type: integer
+                  gender:
+                    type: integer
+                  age:
+                    type: number
+                  mat:
+                    type: number
+                  por:
+                    type: number
+                  tenure:
+                    type: integer
+                  n_av:
+                    type: integer
+                  missing_grades:
+                    type: number
+    responses:
+      200:
+        description: Lista de scores
+        schema:
+          type: object
+          properties:
+            results:
+              type: array
+              items:
+                type: object
+                properties:
+                  student_id:
+                    type: integer
+                  risk_score:
+                    type: number
+                  risk_tier:
+                    type: string
+                    enum: [high, medium, low]
+      422:
+        description: Formato inválido
+      503:
+        description: Modelo não carregado
     """
     cache = current_app.extensions["cache"]
     if not cache.is_ready():
@@ -222,7 +531,7 @@ def predict_batch():
     if not isinstance(items, list):
         return jsonify({"error": "'students' must be a list"}), 422
 
-    VALID_KEYS = {"student_id", "iaa", "ieg", "ips", "ida", "ipv", "inde", "defasagem", "fase_num", "gender", "age"}
+    VALID_KEYS = {"student_id", "iaa", "ieg", "ips", "ida", "ipv", "ian", "inde", "defasagem", "fase_num", "gender", "age", "mat", "por", "tenure", "n_av", "missing_grades"}
     high_thresh = float(os.getenv("RISK_HIGH", "0.7"))
     med_thresh = float(os.getenv("RISK_MEDIUM", "0.3"))
 
@@ -246,7 +555,53 @@ def predict_batch():
 
 @routes_bp.get("/api/model/drift")
 def get_model_drift():
-    """Return risk score distribution stats for operational drift monitoring."""
+    """Estatísticas de distribuição de scores para monitoramento de drift.
+    ---
+    tags:
+      - Model
+    responses:
+      200:
+        description: Estatísticas de distribuição
+        schema:
+          type: object
+          properties:
+            total_students:
+              type: integer
+            score_mean:
+              type: number
+            score_std:
+              type: number
+            score_p10:
+              type: number
+            score_p25:
+              type: number
+            score_p50:
+              type: number
+            score_p75:
+              type: number
+            score_p90:
+              type: number
+            tier_counts:
+              type: object
+              properties:
+                high:
+                  type: integer
+                medium:
+                  type: integer
+                low:
+                  type: integer
+            histogram:
+              type: array
+              items:
+                type: object
+                properties:
+                  bucket:
+                    type: string
+                  count:
+                    type: integer
+      503:
+        description: Modelo não carregado
+    """
     import math
     from datetime import datetime, timezone
 
@@ -315,6 +670,35 @@ def get_model_drift():
 
 @routes_bp.get("/api/model")
 def get_model_info():
+    """Informações do modelo registrado no MLflow.
+    ---
+    tags:
+      - Model
+    responses:
+      200:
+        description: Metadados do modelo
+        schema:
+          type: object
+          properties:
+            model_name:
+              type: string
+            version:
+              type: string
+            stage:
+              type: string
+            run_id:
+              type: string
+            run_name:
+              type: string
+            params:
+              type: object
+            metrics:
+              type: object
+      404:
+        description: Nenhum modelo registrado
+      500:
+        description: Erro ao buscar informações do modelo
+    """
     try:
         tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
         max_attempts = max(1, int(os.getenv("MODEL_INFO_MAX_ATTEMPTS", "4")))

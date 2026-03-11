@@ -34,6 +34,9 @@ import numpy as np
 from mlflow.tracking import MlflowClient
 from sklearn.metrics import f1_score, precision_recall_curve, roc_auc_score
 
+# Silence: "Found torch version ... contains a local version label"
+logging.getLogger("mlflow.utils.requirements_utils").setLevel(logging.ERROR)
+
 # ── Path setup ────────────────────────────────────────────────────────────────
 ROOT = Path(__file__).parent.parent  # backend/
 sys.path.insert(0, str(ROOT / "ml"))

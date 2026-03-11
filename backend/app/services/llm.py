@@ -70,7 +70,9 @@ Regras obrigatórias:
 3. Formate a resposta como uma lista numerada com exatamente 4 sugestões pedagógicas.
 4. Cada sugestão deve ter no máximo 2 frases — objetiva e prática.
 5. Não invente dados que não estejam no contexto fornecido.
-6. Não inclua introdução, conclusão ou saudações — apenas as 4 sugestões.\
+6. Não inclua introdução, conclusão ou saudações — apenas as 4 sugestões.
+7. Indicadores marcados com ⚠️ são dados ausentes ou inválidos — IGNORE-OS completamente. \
+Nunca sugira melhorar registros, corrigir cadastro ou preencher dados. Foque apenas em ações pedagógicas.\
 """
 
 
@@ -175,14 +177,11 @@ class LLMService:
             else:
                 fv = float(val)
                 formatted = f"{fv:.2f}"
-                # IEG=0 or IDA=0 in the display data means the original record
-                # was zero — very likely a data-entry error or student with no
-                # evaluation history, NOT a genuine score of zero.
-                if key in ("ieg", "ida") and fv == 0.0:
-                    formatted += (
-                        " ⚠️ (provável erro de registro ou aluno sem histórico — não interpretar como desempenho nulo)"
-                    )
-                if key in _WEAK_THRESHOLD and fv < _WEAK_THRESHOLD[key]:
+                # Zero in the display data very likely means data-entry error
+                # or student with no evaluation — NOT a genuine score.
+                if key in _WEAK_THRESHOLD and fv == 0.0:
+                    formatted += " ⚠️ (dado ausente — ignorar)"
+                elif key in _WEAK_THRESHOLD and fv < _WEAK_THRESHOLD[key]:
                     weak.append((fv, label))
             lines.append(f"  • {label}: {formatted}")
 

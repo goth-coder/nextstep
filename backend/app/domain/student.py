@@ -42,6 +42,10 @@ class Indicators:
     inde: Optional[float] = None  # Índice de Desenvolvimento Educacional (composite)
     defasagem: Optional[float] = None  # Defasagem escolar no ano atual (raw int, não scaled)
     fase_num: Optional[int] = None  # Fase normalizada (0=ALFA .. 8=universitário)
+    mat: Optional[float] = None  # Nota de Matemática (0-10)
+    por: Optional[float] = None  # Nota de Português (0-10)
+    tenure: Optional[int] = None  # Anos na ONG (year - ano_ingresso)
+    n_av: Optional[int] = None  # Número de avaliadores
 
     def to_dict(self) -> dict:
         return {
@@ -55,6 +59,10 @@ class Indicators:
             "inde": self.inde,
             "defasagem": self.defasagem,
             "fase_num": self.fase_num,
+            "mat": self.mat,
+            "por": self.por,
+            "tenure": self.tenure,
+            "n_av": self.n_av,
         }
 
 

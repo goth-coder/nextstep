@@ -14,6 +14,7 @@ import os
 from flask import Flask
 
 from app.limiter import limiter
+from app.swagger_config import init_swagger
 
 log = logging.getLogger(__name__)
 
@@ -84,6 +85,8 @@ def create_app() -> Flask:
     from app.routes import routes_bp
 
     app.register_blueprint(routes_bp)
+
+    init_swagger(app)
 
     log.info("Flask app created checkmark  routes=%s", [str(r) for r in app.url_map.iter_rules()])
     return app

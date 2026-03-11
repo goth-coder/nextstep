@@ -16,6 +16,9 @@ if TYPE_CHECKING:
 
 import mlflow
 import mlflow.pytorch
+
+# Silence: "Found torch version (2.3.1+cpu) contains a local version label"
+logging.getLogger("mlflow.utils.requirements_utils").setLevel(logging.ERROR)
 from mlflow.tracking import MlflowClient
 
 from .evaluator import EvalResult

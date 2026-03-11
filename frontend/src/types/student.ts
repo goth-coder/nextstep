@@ -42,6 +42,10 @@ export interface Indicators {
   ian: number | null
   inde: number | null
   defasagem: number | null
+  mat: number | null
+  por: number | null
+  tenure: number | null
+  n_av: number | null
 }
 
 export interface StudentDetail extends StudentSummary {

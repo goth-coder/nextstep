@@ -98,6 +98,7 @@ services:
         fi
     environment:
       - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - PYTHONWARNINGS=ignore::UserWarning:_distutils_hack
       - DATA_PATH=/app/data/raw/BASE DE DADOS PEDE 2022-2024 - DATATHON.xlsx
       - GIT_PYTHON_REFRESH=quiet
       - TRIALS
