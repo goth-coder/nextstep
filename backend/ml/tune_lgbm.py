@@ -33,12 +33,9 @@ sys.path.insert(0, str(ROOT / "ml"))
 
 from train_lgbm import (  # noqa: E402
     DEFAULT_PARAMS,
-    EXPERIMENT_NAME,
     MLFLOW_URI,
-    MODEL_NAME,
     PROCESSED_DIR,
     _log_run,
-    evaluate,
     find_threshold,
     fit_calibrator,
     load_arrays,

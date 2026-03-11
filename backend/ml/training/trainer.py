@@ -11,9 +11,9 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable  # noqa: F401 — Callable used in string annotation below
 
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
 from torch.utils.data import DataLoader, TensorDataset
 
 if TYPE_CHECKING:

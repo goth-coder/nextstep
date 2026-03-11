@@ -19,10 +19,10 @@ import mlflow.pytorch
 
 # Silence: "Found torch version (2.3.1+cpu) contains a local version label"
 logging.getLogger("mlflow.utils.requirements_utils").setLevel(logging.ERROR)
-from mlflow.tracking import MlflowClient
+from mlflow.tracking import MlflowClient  # noqa: E402
 
-from .evaluator import EvalResult
-from .trainer import TrainConfig
+from .evaluator import EvalResult  # noqa: E402
+from .trainer import TrainConfig  # noqa: E402
 
 log = logging.getLogger(__name__)
 

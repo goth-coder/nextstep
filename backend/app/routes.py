@@ -426,7 +426,11 @@ def predict_one():
 
     body = request.get_json(silent=True) or {}
 
-    VALID_KEYS = {"iaa", "ieg", "ips", "ida", "ipv", "ian", "inde", "defasagem", "fase_num", "gender", "age", "mat", "por", "tenure", "n_av", "missing_grades"}
+    VALID_KEYS = {
+        "iaa", "ieg", "ips", "ida", "ipv", "ian", "inde",
+        "defasagem", "fase_num", "gender", "age", "mat", "por",
+        "tenure", "n_av", "missing_grades",
+    }
     unknown = set(body.keys()) - VALID_KEYS
     if unknown:
         return jsonify({"error": f"Unknown fields: {sorted(unknown)}"}), 422
@@ -531,7 +535,11 @@ def predict_batch():
     if not isinstance(items, list):
         return jsonify({"error": "'students' must be a list"}), 422
 
-    VALID_KEYS = {"student_id", "iaa", "ieg", "ips", "ida", "ipv", "ian", "inde", "defasagem", "fase_num", "gender", "age", "mat", "por", "tenure", "n_av", "missing_grades"}
+    VALID_KEYS = {
+        "student_id", "iaa", "ieg", "ips", "ida", "ipv", "ian", "inde",
+        "defasagem", "fase_num", "gender", "age", "mat", "por",
+        "tenure", "n_av", "missing_grades",
+    }
     high_thresh = float(os.getenv("RISK_HIGH", "0.7"))
     med_thresh = float(os.getenv("RISK_MEDIUM", "0.3"))
 

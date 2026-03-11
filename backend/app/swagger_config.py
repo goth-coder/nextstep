@@ -2,7 +2,6 @@
 
 from flasgger import Swagger
 
-
 SWAGGER_TEMPLATE = {
     "info": {
         "title": "NextStep API",

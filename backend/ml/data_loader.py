@@ -272,7 +272,10 @@ def run_etl() -> None:
     # ── 3. Temporal train/test pairs ─────────────────────────────────────────
     # IPP is NOT a model feature (absent in 2022 → would be 100% synthetic for train pairs).
     # IPP is stored separately in students_meta for frontend display only.
-    FEATURE_SOURCE_COLS = ["IAA", "IEG", "IPS", "IDA", "IPV", "IAN", "INDE", "defasagem", "fase_num", "gender", "age", "tenure", "n_av"]
+    FEATURE_SOURCE_COLS = [
+        "IAA", "IEG", "IPS", "IDA", "IPV", "IAN", "INDE",
+        "defasagem", "fase_num", "gender", "age", "tenure", "n_av",
+    ]
 
     def make_pairs(df_t: pd.DataFrame, df_t1: pd.DataFrame, label: str) -> tuple[pd.DataFrame, pd.Series]:
         shared = set(df_t["RA"]) & set(df_t1["RA"])
@@ -364,9 +367,13 @@ def run_etl() -> None:
     _mat_null_inf = d24_clean["mat"].isna()
     _por_null_inf = d24_clean["por"].isna()
     if _mat_null_inf.any():
-        d24_clean.loc[_mat_null_inf, "mat"] = d24_clean.loc[_mat_null_inf, "fase_num"].map(_mat_fase_med).fillna(_mat_global)
+        d24_clean.loc[_mat_null_inf, "mat"] = (
+            d24_clean.loc[_mat_null_inf, "fase_num"].map(_mat_fase_med).fillna(_mat_global)
+        )
     if _por_null_inf.any():
-        d24_clean.loc[_por_null_inf, "por"] = d24_clean.loc[_por_null_inf, "fase_num"].map(_por_fase_med).fillna(_por_global)
+        d24_clean.loc[_por_null_inf, "por"] = (
+            d24_clean.loc[_por_null_inf, "fase_num"].map(_por_fase_med).fillna(_por_global)
+        )
     log.info(
         "Inference grade imputation: %d missing (%.1f%%)",
         int(d24_clean["missing_grades"].sum()),
