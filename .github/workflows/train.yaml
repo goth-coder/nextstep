@@ -16,7 +16,7 @@ on:
         type: choice
         options: ["true", "false"]
       trials:
-        description: "HPO trials (0 = skip HPO, run train directly; max 50)"
+        description: "HPO trials (0 = skip HPO, run train directly; max 200)"
         required: false
         default: "0"
         type: string
@@ -47,7 +47,7 @@ jobs:
   train:
     name: Create Cluster + Run Training
     runs-on: ubuntu-latest
-    timeout-minutes: 90  # hard cap: cluster costs money if left running (50 trials can take ~60min)
+    timeout-minutes: 90  # hard cap: cluster costs money if left running (200 trials can take ~60min)
     outputs:
       model_name: ${{ steps.submit.outputs.model_name }}
     permissions:
@@ -121,8 +121,8 @@ jobs:
         run: |
           TRIALS="${{ inputs.trials }}"
           TRIALS=${TRIALS:-0}
-          # Clamp to max 50
-          if (( TRIALS > 50 )); then TRIALS=50; fi
+          # Clamp to max 200
+          if (( TRIALS > 200 )); then TRIALS=200; fi
           MODEL_TYPE="${{ inputs.model_type }}"
           MODEL_TYPE=${MODEL_TYPE:-lstm}
           MODEL_NAME="nextstep-${MODEL_TYPE}"
