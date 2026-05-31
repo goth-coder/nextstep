@@ -114,7 +114,7 @@ jobs:
             --port 8080 \
             --memory 1Gi \
             --cpu 1 \
-            --min-instances 1 \
+            --min-instances 0 \
             --max-instances 1 \
             --set-env-vars "MLFLOW_BUCKET=${{ secrets.GCS_BUCKET }}" \
             --quiet
@@ -196,3 +196,24 @@ jobs:
           curl -sf --retry 5 --retry-delay 5 --retry-connrefused \
             "$FRONTEND_URL" -o /dev/null && echo "✅ Frontend OK" || echo "⚠️ Smoke test inconclusive"
         continue-on-error: true
+
+      - name: Cleanup old Artifact Registry images
+        # Keep only the 5 most recent images per repo; delete older SHA-tagged ones.
+        # Runs after deploy so the current image is never at risk of deletion.
+        continue-on-error: true
+        run: |
+          for REPO in nextstep-api nextstep-web nextstep-mlflow; do
+            echo "Cleaning $REPO..."
+            gcloud artifacts docker images list "$REGISTRY/$REPO" \
+              --project "$PROJECT_ID" \
+              --include-tags \
+              --sort-by="~UPDATE_TIME" \
+              --format="value(IMAGE, VERSION)" \
+              | tail -n +6 \
+              | while read IMAGE VERSION; do
+                  gcloud artifacts docker images delete "${IMAGE}@${VERSION}" \
+                    --project "$PROJECT_ID" \
+                    --quiet 2>/dev/null && echo "  deleted ${IMAGE}@${VERSION:0:16}..." || true
+                done
+            echo "  ✅ $REPO cleaned"
+          done
