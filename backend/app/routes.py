@@ -140,11 +140,7 @@ def list_students():
     if not cache.has_students():
         detail = cache.last_error() or "Student data not yet available"
         return jsonify({"error": "Student data not yet loaded", "detail": detail}), 503
-    # Sort by risk_score descending (None scores go to the end)
-    records = sorted(
-        cache.get_all(),
-        key=lambda r: (-(r.risk_score or 0.0) if r.risk_score is not None else float("-inf"), r.display_name),
-    )
+    records = cache.get_all()  # pre-sorted by risk desc at load time
     students = [
         {
             "student_id": r.student_id,

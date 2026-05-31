@@ -29,6 +29,7 @@ class StudentCacheService:
     def __init__(self, prediction_service: PredictionService) -> None:
         self._prediction_service = prediction_service
         self._cache: dict[int, StudentRecord] = {}
+        self._sorted: list[StudentRecord] = []  # pre-sorted by risk desc, updated at load time
         self._students_ready: bool = False  # Phase 1: metadata loaded
         self._ready: bool = False           # Phase 2: model scores loaded
         self._last_error: str | None = None
@@ -43,6 +44,7 @@ class StudentCacheService:
         self._last_attempt_at = datetime.now(timezone.utc).isoformat()
         records = self._prediction_service.load_students_only()
         self._cache = {r.student_id: r for r in records}
+        self._sorted = list(records)
         self._students_ready = True
         self._last_error = None
         log.info("Phase-1 cache ready ✓  %d students (no scores)", len(self._cache))
@@ -52,6 +54,10 @@ class StudentCacheService:
         self._last_attempt_at = datetime.now(timezone.utc).isoformat()
         records = self._prediction_service.run_batch_inference()
         self._cache = {r.student_id: r for r in records}
+        self._sorted = sorted(
+            records,
+            key=lambda r: (-(r.risk_score or 0.0) if r.risk_score is not None else float("-inf"), r.display_name),
+        )
         self._ready = True
         log.info("Phase-2 cache ready ✓  %d students (with scores)", len(self._cache))
 
@@ -102,7 +108,7 @@ class StudentCacheService:
         return self._ready
 
     def get_all(self) -> list[StudentRecord]:
-        return list(self._cache.values())
+        return self._sorted
 
     def get_by_id(self, student_id: int) -> StudentRecord | None:
         return self._cache.get(int(student_id))

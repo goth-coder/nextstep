@@ -15,7 +15,8 @@ api.interceptors.response.use(
 // ── Student list ──────────────────────────────────────────────────────────────
 
 export async function getStudents(): Promise<{ students: StudentSummary[]; total: number }> {
-  const response = await api.get<{ students: StudentSummary[]; total: number }>('/api/students')
+  // Longer timeout: cold start can take 60-90s (GCS download + model load from MLflow)
+  const response = await api.get<{ students: StudentSummary[]; total: number }>('/api/students', { timeout: 30_000 })
   return response.data
 }
 

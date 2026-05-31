@@ -49,16 +49,17 @@ export async function getOrFetchStudents(): Promise<CacheEntry> {
  * Max 5 attempts over ~15 seconds to handle API cold start.
  */
 async function fetchWithRetry(attempt = 1): Promise<{ students: StudentSummary[]; total: number }> {
-  const maxAttempts = 5
-  const baseDelay = 1000 // ms
+  const maxAttempts = 10
+  const baseDelay = 2000 // ms
 
   try {
     return await getStudents()
   } catch (err: unknown) {
     const status = (err as { response?: { status?: number } })?.response?.status
+    const code = (err as { code?: string })?.code
 
-    // Only retry on 503 (service not ready) - fail fast on other errors
-    if (status === 503 && attempt < maxAttempts) {
+    // Retry on 503 (service not ready) or timeout (worker still initializing on cold start)
+    if ((status === 503 || code === 'ECONNABORTED') && attempt < maxAttempts) {
       const delay = Math.min(baseDelay * Math.pow(2, attempt - 1), 8000)
       await new Promise(resolve => setTimeout(resolve, delay))
       return fetchWithRetry(attempt + 1)
