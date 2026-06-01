@@ -6,9 +6,9 @@ SWAGGER_TEMPLATE = {
     "info": {
         "title": "NextStep API",
         "description": (
-            "API de predição de risco de defasagem escolar para a ONG Passos Mágicos.\n\n"
-            "O modelo prediz P(piora na defasagem) para o próximo ciclo letivo, "
-            "usando indicadores pedagógicos e dados acadêmicos dos alunos."
+            "Educational lag risk prediction API for the NGO Passos Mágicos.\n\n"
+            "The model predicts P(lag worsening) for the next academic cycle, "
+            "using pedagogical indicators and students' academic data."
         ),
         "version": "1.0.0",
     },

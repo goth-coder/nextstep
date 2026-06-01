@@ -9,8 +9,8 @@ interface IndicatorCardProps {
 const ZERO_SUSPICIOUS_KEYS = new Set(['iaa', 'ieg', 'ips', 'ida', 'ipv', 'ipp', 'inde'])
 
 function zeroTooltip(key: string): string {
-  if (key === 'ieg') return 'IEG = 0 afeta 9% dos alunos — pode indicar ausência de avaliação de engajamento; verifique com o coordenador.'
-  return 'Valor zero pode indicar dado ausente ou erro de registro — verifique o histórico do aluno.'
+  if (key === 'ieg') return 'IEG = 0 affects ~9% of students — may indicate a missing engagement assessment; check with the coordinator.'
+  return 'A zero value may indicate missing data or a registration error — review the student\'s history.'
 }
 
 export default function IndicatorCard({ label, value, indicatorKey }: IndicatorCardProps) {
@@ -49,7 +49,7 @@ export default function IndicatorCard({ label, value, indicatorKey }: IndicatorC
           </span>
           {isZeroSuspicious && (
             <span
-              title="Valor zero suspeito — pode ser dado ausente"
+              title="Suspicious zero value — may be missing data"
               style={{ fontSize: '0.85rem', cursor: 'help' }}
             >
               ⚠️

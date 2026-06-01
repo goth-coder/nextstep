@@ -109,7 +109,7 @@ export default function AppShell({ children }: AppShellProps) {
           }}
         >
           FIAP · PEDE 2022–2024<br />
-          Defasagem Escolar
+          School Lag Monitor
         </div>
       </aside>
 

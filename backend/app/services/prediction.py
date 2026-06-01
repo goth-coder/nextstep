@@ -14,6 +14,7 @@ import numpy as np
 
 from app.domain.ports import ModelRepository, StudentDataRepository
 from app.domain.student import Indicators, StudentRecord
+from ml.data_loader import _fallback_name
 
 log = logging.getLogger(__name__)
 
@@ -105,7 +106,7 @@ class PredictionService:
             record = StudentRecord.build(
                 student_id=i,
                 ra=meta.get("ra", f"RA-{i}"),
-                display_name=meta.get("display_name", f"Aluno-{i}"),
+                display_name=meta.get("display_name", _fallback_name(i)),
                 phase=meta.get("phase", "N/A"),
                 phase_num=meta.get("fase_num", 0),
                 class_group=meta.get("class_group", "N/A"),

@@ -102,13 +102,13 @@ def readyz():
 
 @routes_bp.get("/api/students")
 def list_students():
-    """Lista todos os alunos com scores de risco.
+    """Lists all students with risk scores.
     ---
     tags:
       - Students
     responses:
       200:
-        description: Lista de alunos ordenados por risco
+        description: List of students sorted by risk
         schema:
           type: object
           properties:
@@ -134,7 +134,7 @@ def list_students():
             total:
               type: integer
       503:
-        description: Dados não carregados
+        description: Data not yet loaded
     """
     cache = current_app.extensions["cache"]
     if not cache.has_students():
@@ -157,7 +157,7 @@ def list_students():
 
 @routes_bp.get("/api/students/<int:student_id>")
 def get_student(student_id: int):
-    """Detalhes de um aluno com indicadores.
+    """Student details with indicators.
     ---
     tags:
       - Students
@@ -166,10 +166,10 @@ def get_student(student_id: int):
         in: path
         type: integer
         required: true
-        description: ID do aluno
+        description: Student ID
     responses:
       200:
-        description: Detalhes do aluno
+        description: Student details
         schema:
           type: object
           properties:
@@ -185,7 +185,7 @@ def get_student(student_id: int):
               type: string
             gender:
               type: integer
-              description: "0=Feminino, 1=Masculino"
+              description: "0=Female, 1=Male"
             age:
               type: integer
             risk_score:
@@ -224,9 +224,9 @@ def get_student(student_id: int):
                 n_av:
                   type: integer
       404:
-        description: Aluno não encontrado
+        description: Student not found
       503:
-        description: Dados não carregados
+        description: Data not yet loaded
     """
     cache = current_app.extensions["cache"]
     if not cache.has_students():
@@ -269,7 +269,7 @@ def get_student(student_id: int):
 @routes_bp.get("/api/students/<int:student_id>/advice")
 @limiter.limit("20 per hour")
 def get_advice(student_id: int):
-    """Sugestões pedagógicas geradas por LLM para um aluno.
+    """LLM-generated pedagogical suggestions for a student.
     ---
     tags:
       - Students
@@ -280,7 +280,7 @@ def get_advice(student_id: int):
         required: true
     responses:
       200:
-        description: Sugestões pedagógicas
+        description: Pedagogical suggestions
         schema:
           type: object
           properties:
@@ -288,18 +288,18 @@ def get_advice(student_id: int):
               type: integer
             advice:
               type: string
-              description: Texto com 4 sugestões pedagógicas
+              description: Text with 4 pedagogical suggestions
             is_fallback:
               type: boolean
-              description: true se a LLM falhou e retornou texto padrão
+              description: true if the LLM failed and returned the default fallback text
             generated_at:
               type: string
               format: date-time
               nullable: true
       404:
-        description: Aluno não encontrado
+        description: Student not found
       503:
-        description: Modelo não carregado
+        description: Model not yet loaded
     """
     cache = current_app.extensions["cache"]
     if not cache.is_ready():
@@ -339,7 +339,7 @@ def get_advice(student_id: int):
 @routes_bp.post("/api/predict")
 @limiter.limit("60 per hour")
 def predict_one():
-    """Predição de risco on-demand para valores arbitrários.
+    """On-demand risk prediction for arbitrary indicator values.
     ---
     tags:
       - Prediction
@@ -352,54 +352,54 @@ def predict_one():
           properties:
             iaa:
               type: number
-              description: "Índice de Aproveitamento Acadêmico (0-10)"
+              description: "Academic Achievement Index (0-10)"
             ieg:
               type: number
-              description: "Índice de Engajamento (0-10)"
+              description: "Engagement Index (0-10)"
             ips:
               type: number
-              description: "Índice Psicossocial (0-10)"
+              description: "Psychosocial Index (0-10)"
             ida:
               type: number
-              description: "Índice de Aprendizagem (0-10)"
+              description: "Learning Index (0-10)"
             ipv:
               type: number
-              description: "Índice de Visão de Vida (0-10)"
+              description: "Future Vision Index (0-10)"
             ian:
               type: number
-              description: "Índice de Adequação ao Nível (0-10)"
+              description: "Grade Level Adequacy Index (0-10)"
             inde:
               type: number
-              description: "Índice de Desenvolvimento Educacional (0-10)"
+              description: "Educational Development Index (0-10)"
             defasagem:
               type: integer
-              description: "Defasagem escolar (negativo = atrás)"
+              description: "Educational lag (negative = behind)"
             fase_num:
               type: integer
-              description: "Fase (0-9)"
+              description: "Phase (0-9)"
             gender:
               type: integer
-              description: "0=Feminino, 1=Masculino"
+              description: "0=Female, 1=Male"
             age:
               type: number
             mat:
               type: number
-              description: "Nota de Matemática (0-10)"
+              description: "Math grade (0-10)"
             por:
               type: number
-              description: "Nota de Português (0-10)"
+              description: "Portuguese grade (0-10)"
             tenure:
               type: integer
-              description: "Anos na ONG"
+              description: "Years at the NGO"
             n_av:
               type: integer
-              description: "Número de avaliadores"
+              description: "Number of evaluators"
             missing_grades:
               type: number
-              description: "1 se notas foram imputadas, 0 caso contrário"
+              description: "1 if grades were imputed, 0 otherwise"
     responses:
       200:
-        description: Score de risco
+        description: Risk score
         schema:
           type: object
           properties:
@@ -412,9 +412,9 @@ def predict_one():
             input:
               type: object
       422:
-        description: Campos desconhecidos
+        description: Unknown fields
       503:
-        description: Modelo não carregado
+        description: Model not yet loaded
     """
     cache = current_app.extensions["cache"]
     if not cache.is_ready():
@@ -447,7 +447,7 @@ def predict_one():
 @routes_bp.post("/api/predict/batch")
 @limiter.limit("10 per minute")
 def predict_batch():
-    """Predição de risco em lote.
+    """Batch risk prediction.
     ---
     tags:
       - Prediction
@@ -501,7 +501,7 @@ def predict_batch():
                     type: number
     responses:
       200:
-        description: Lista de scores
+        description: List of scores
         schema:
           type: object
           properties:
@@ -518,9 +518,9 @@ def predict_batch():
                     type: string
                     enum: [high, medium, low]
       422:
-        description: Formato inválido
+        description: Invalid format
       503:
-        description: Modelo não carregado
+        description: Model not yet loaded
     """
     cache = current_app.extensions["cache"]
     if not cache.is_ready():
@@ -559,13 +559,13 @@ def predict_batch():
 
 @routes_bp.get("/api/model/drift")
 def get_model_drift():
-    """Estatísticas de distribuição de scores para monitoramento de drift.
+    """Score distribution statistics for drift monitoring.
     ---
     tags:
       - Model
     responses:
       200:
-        description: Estatísticas de distribuição
+        description: Distribution statistics
         schema:
           type: object
           properties:
@@ -604,7 +604,7 @@ def get_model_drift():
                   count:
                     type: integer
       503:
-        description: Modelo não carregado
+        description: Model not yet loaded
     """
     import math
     from datetime import datetime, timezone
@@ -674,13 +674,13 @@ def get_model_drift():
 
 @routes_bp.get("/api/model")
 def get_model_info():
-    """Informações do modelo registrado no MLflow.
+    """Registered model information from MLflow.
     ---
     tags:
       - Model
     responses:
       200:
-        description: Metadados do modelo
+        description: Model metadata
         schema:
           type: object
           properties:
@@ -699,9 +699,9 @@ def get_model_info():
             metrics:
               type: object
       404:
-        description: Nenhum modelo registrado
+        description: No registered model found
       500:
-        description: Erro ao buscar informações do modelo
+        description: Error fetching model information
     """
     try:
         tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")

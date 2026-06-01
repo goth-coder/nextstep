@@ -26,34 +26,35 @@ const METRIC_LABELS: Record<string, { label: string; format: (v: number) => stri
   val_auc: {
     label: 'Val AUC-ROC',
     format: (v) => v.toFixed(4),
-    tip: 'Capacidade do modelo de distinguir alunos que vão piorar dos que não vão. AUC 0.82 = em 82% dos pares aleatórios, o modelo atribui risco maior ao aluno que de fato piorou. ≥0.80 = bom para dados educacionais.',
+    tip: 'Model ability to distinguish students who will deteriorate from those who will not. AUC 0.82 = in 82% of random pairs, the model assigns a higher risk score to the student who actually deteriorated. ≥0.80 = good for educational data.',
   },
   val_f1: {
     label: 'Val F1',
     format: (v) => v.toFixed(4),
-    tip: 'Equilíbrio entre precisão e recall no conjunto de teste (2023→2024). Com ~17% de positivos, F1 ≥0.50 indica que o modelo identifica a maioria dos alunos em risco com taxa aceitável de falsos alarmes.',
+    tip: 'Balance between precision and recall on the test set (2023→2024). With ~17% positives, F1 ≥0.50 indicates the model identifies most at-risk students with an acceptable false-alarm rate.',
   },
   val_f1_internal: {
     label: 'Val F1 (internal)',
     format: (v) => v.toFixed(4),
-    tip: 'F1 no split de validação (20% do treino) usado para escolher o threshold. Valor maior que Val F1 é esperado — o threshold foi otimizado para esse split. A diferença mede o quanto o threshold transfere entre períodos.',
+    tip: 'F1 on the validation split (20% of training data) used to select the threshold. A higher value than Val F1 is expected — the threshold was optimised on this split. The difference measures how well the threshold transfers across periods.',
   },
   threshold: {
     label: 'Decision threshold',
     format: (v) => v.toFixed(4),
-    tip: 'Ponto de corte de probabilidade: acima = aluno classificado em risco. Escolhido automaticamente pela curva PR para maximizar F1 na validação.',
+    tip: 'Probability cut-off: scores above this value classify the student as at risk. Chosen automatically from the PR curve to maximise F1 on the validation set.',
   },
   train_loss: {
     label: 'Train loss (BCE)',
     format: (v) => v.toFixed(6),
-    tip: 'Erro médio no treino. Valores muito baixos (<0.1) podem indicar overfitting — o modelo memorizou os dados em vez de generalizar.',
+    tip: 'Average training loss. Very low values (<0.1) may indicate overfitting — the model has memorised the training data rather than generalising.',
   },
 }
 
-const FEATURE_ORDER = ['IAA', 'IEG', 'IPS', 'IDA', 'IPV', 'INDE', 'Defasagem', 'Fase', 'Gênero', 'Idade']
+const FEATURE_ORDER = ['IAA', 'IAN', 'IEG', 'IPS', 'IDA', 'IPV', 'INDE', 'Defasagem', 'Fase', 'Gender', 'Idade', 'Mat', 'Por', 'Tenure', 'Assessors', 'Missing Grades']
 
 const FEATURE_DESCRIPTIONS: Record<string, string> = {
   IAA: 'Academic Performance Index',
+  IAN: 'Grade Level Adequacy Index: measures how well the student\'s academic level matches their expected school grade',
   IEG: 'Engagement Index',
   IPS: 'Psychosocial Index',
   IDA: 'Self-sufficiency Index',
@@ -61,8 +62,13 @@ const FEATURE_DESCRIPTIONS: Record<string, string> = {
   INDE: 'Educational Development Index (composite)',
   Defasagem: 'School lag (years behind grade level)',
   Fase: 'Normalized phase number (0–8)',
-  'Gênero': 'Gender (0 = Feminina, 1 = Masculino)',
+  Gender: 'Gender (0 = Female, 1 = Male)',
   Idade: 'Age of the student in the observation year',
+  Mat: 'Mathematics Grade: standardized score for mathematics performance (0–10)',
+  Por: 'Portuguese Grade: standardized score for Portuguese language performance (0–10)',
+  Tenure: 'Years at ONG: number of years the student has participated in the Passos Mágicos program',
+  Assessors: 'Number of Assessors: count of teachers or staff who evaluated the student in this cycle',
+  'Missing Grades': 'Missing Grades Flag: binary indicator (1 = one or more grades were unavailable for this student)',
 }
 
 function bytes(n: number | null) {
@@ -249,18 +255,18 @@ export default function ModelPage() {
               })}
             </div>
             <p style={{ fontSize: typography.sizes.xs, color: colors.gray500, marginTop: '0.75rem' }}>
-              ℹ️ Passe o mouse em cada card para descrição. Verde = bom (AUC ≥ 0.80, F1 ≥ 0.55), amarelo = aceitável, vermelho = atenção.
+              ℹ️ Hover each card for description. Green = good (AUC ≥ 0.80, F1 ≥ 0.55), yellow = acceptable, red = needs attention.
             </p>
             <div style={{
               marginTop: '1rem', padding: '1rem', background: colors.gray50,
               borderRadius: radius.md, border: `1px solid ${colors.gray200}`,
               fontSize: typography.sizes.xs, color: colors.gray500, lineHeight: '1.6',
             }}>
-              <strong style={{ color: colors.brandPrimary }}>O que significam essas métricas?</strong>
+              <strong style={{ color: colors.brandPrimary }}>What do these metrics mean?</strong>
               <ul style={{ margin: '0.5rem 0 0 1rem', padding: 0 }}>
-                <li><strong>AUC-ROC</strong> — Mede a capacidade de <em>ranking</em>: se pegarmos um aluno que piorou e um que não piorou, qual a chance do modelo dar score maior ao que piorou? Com ~17% de positivos e 600 pares de treino, AUC ≥ 0.80 indica boa discriminação.</li>
-                <li><strong>F1</strong> — Equilíbrio entre não deixar alunos em risco passar (recall) e não sobrecarregar a equipe com falsos alarmes (precisão). F1 = 0.55 na prática significa: de cada 100 alunos, o modelo identifica corretamente ~10 dos ~17 em risco, com ~8 falsos alarmes.</li>
-                <li><strong>F1 Internal vs F1</strong> — O F1 interno é calculado no mesmo período usado para escolher o threshold; o F1 final é no período seguinte. A diferença mede o quanto as regras do modelo transferem entre anos letivos.</li>
+                <li><strong>AUC-ROC</strong> — Measures <em>ranking</em> ability: given a student who deteriorated and one who did not, what is the probability the model assigns a higher score to the one who deteriorated? With ~17% positives and 600 training pairs, AUC ≥ 0.80 indicates good discrimination.</li>
+                <li><strong>F1</strong> — Balance between not missing at-risk students (recall) and not overwhelming the team with false alarms (precision). F1 = 0.55 in practice means: out of 100 students, the model correctly flags ~10 of the ~17 at risk, with ~8 false alarms.</li>
+                <li><strong>F1 Internal vs F1</strong> — The internal F1 is computed on the same period used to select the threshold; the final F1 is on the following period. The difference measures how well the model's rules transfer across academic years.</li>
               </ul>
             </div>
           </Section>
@@ -268,15 +274,15 @@ export default function ModelPage() {
           {/* ── Drift monitoring ───────────────────────────────────── */}
           {drift ? (
             <Section
-              title="Distribuição de Scores — Monitoramento de Drift"
-              info="O modelo foi treinado com dados de 2022–2023. Se em ciclos futuros a distribuição dos scores mudar significativamente — por exemplo, muito mais alunos migrando para alto risco sem mudança pedagógica real — isso pode indicar que os dados saíram da distribuição de treino. Sinal de alerta: distribuição concentrando-se nos extremos (0–0.1 ou 0.8–1.0), ou mediana subindo/descendo mais de 0.1 em relação ao ciclo anterior."
+              title="Score Distribution — Drift Monitoring"
+              info="The model was trained on 2022–2023 data. If in future cycles the score distribution shifts significantly — for example, many more students moving into high risk without a genuine pedagogical change — this may indicate that the data has drifted outside the training distribution. Warning signs: distribution concentrating at the extremes (0–0.1 or 0.8–1.0), or the median rising/falling by more than 0.1 compared with the previous cycle."
             >
               <DriftPanel drift={drift} />
             </Section>
           ) : (
-            <Section title="Distribuição de Scores — Monitoramento de Drift">
+            <Section title="Score Distribution — Drift Monitoring">
               <p style={{ fontSize: typography.sizes.sm, color: colors.gray500, fontStyle: 'italic' }}>
-                Carregando estatísticas da coorte…
+                Loading cohort statistics…
               </p>
             </Section>
           )}
@@ -319,7 +325,7 @@ export default function ModelPage() {
               color: colors.gray700, lineHeight: 1.7,
             }}>
               <div><span style={{ color: colors.brandAccent, fontWeight: 700 }}>Type</span>: LSTM (Long Short-Term Memory)</div>
-              <div><span style={{ color: colors.brandAccent, fontWeight: 700 }}>Input features</span> ({model.params.input_size}): IAA · IEG · IPS · IDA · IPV · INDE · Defasagem · Fase · Gênero · Idade</div>
+              <div><span style={{ color: colors.brandAccent, fontWeight: 700 }}>Input features</span> ({model.params.input_size}): IAA · IAN · IEG · IPS · IDA · IPV · INDE · Defasagem · Fase · Gender · Idade · Mat · Por · Tenure · Assessors · Missing Grades</div>
               <div><span style={{ color: colors.brandAccent, fontWeight: 700 }}>LSTM hidden size</span>: {model.params.hidden_size}</div>
               <div><span style={{ color: colors.brandAccent, fontWeight: 700 }}>LSTM layers</span>: {model.params.num_layers}</div>
               <div><span style={{ color: colors.brandAccent, fontWeight: 700 }}>Output</span>: sigmoid → P(dropout risk) ∈ [0, 1]</div>
@@ -454,9 +460,9 @@ function DriftPanel({ drift }: { drift: DriftInfo }) {
   }
 
   function riskLabel(from: number): string {
-    if (from >= 0.7) return 'Alto Risco'
-    if (from >= 0.3) return 'Médio Risco'
-    return 'Baixo Risco'
+    if (from >= 0.7) return 'High Risk'
+    if (from >= 0.3) return 'Medium Risk'
+    return 'Low Risk'
   }
 
   const pct = (n: number) => total_students > 0 ? `${((n / total_students) * 100).toFixed(1)}%` : '—'
@@ -467,9 +473,9 @@ function DriftPanel({ drift }: { drift: DriftInfo }) {
       {/* Tier pills */}
       <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
         {[
-          { label: 'Alto Risco', count: tier_counts.high, bg: colors.riskHighBg, fg: colors.riskHigh },
-          { label: 'Médio Risco', count: tier_counts.medium, bg: colors.riskMediumBg, fg: colors.riskMedium },
-          { label: 'Baixo Risco', count: tier_counts.low, bg: colors.riskLowBg, fg: colors.riskLow },
+          { label: 'High Risk', count: tier_counts.high, bg: colors.riskHighBg, fg: colors.riskHigh },
+          { label: 'Medium Risk', count: tier_counts.medium, bg: colors.riskMediumBg, fg: colors.riskMedium },
+          { label: 'Low Risk', count: tier_counts.low, bg: colors.riskLowBg, fg: colors.riskLow },
         ].map(({ label, count, bg, fg }) => (
           <div key={label} style={{
             background: bg, borderRadius: radius.full,
@@ -484,7 +490,7 @@ function DriftPanel({ drift }: { drift: DriftInfo }) {
           </div>
         ))}
         <div style={{ marginLeft: 'auto', fontSize: typography.sizes.xs, color: colors.gray500, alignSelf: 'center' }}>
-          {total_students} alunos · {new Date(drift.computed_at).toLocaleTimeString('pt-BR')}
+          {total_students} students · {new Date(drift.computed_at).toLocaleTimeString('en-GB')}
         </div>
       </div>
 
@@ -570,7 +576,7 @@ function DriftPanel({ drift }: { drift: DriftInfo }) {
                   </text>
                   <text x={tx + TW / 2} y={ty + 29} textAnchor="middle"
                     fontSize="11" fontWeight="800" fill="white" fontFamily={typography.fontFamily}>
-                    {tooltip.count} alunos ({tooltip.pct})
+                    {tooltip.count} students ({tooltip.pct})
                   </text>
                   <text x={tx + TW / 2} y={ty + 44} textAnchor="middle"
                     fontSize="9" fill="#94a3b8" fontFamily={typography.fontFamily}>
@@ -581,7 +587,7 @@ function DriftPanel({ drift }: { drift: DriftInfo }) {
             })()}
         </svg>
         <p style={{ fontSize: typography.sizes.xs, color: colors.gray500, margin: '0.25rem 0 0' }}>
-          Distribuição dos scores de risco preditos para os {total_students} alunos do ciclo 2024 (intervalos de 0.1). Passe o mouse nas barras para detalhes.
+          Distribution of predicted risk scores for the {total_students} students in the 2024 cycle (buckets of 0.1). Hover the bars for details.
         </p>
       </div>
 
@@ -592,9 +598,9 @@ function DriftPanel({ drift }: { drift: DriftInfo }) {
         overflowX: 'auto',
       }}>
         {[
-          { label: 'Média', value: drift.score_mean.toFixed(3) },
-          { label: 'Mediana', value: drift.score_p50.toFixed(3) },
-          { label: 'Desvio P.', value: drift.score_std.toFixed(3) },
+          { label: 'Mean', value: drift.score_mean.toFixed(3) },
+          { label: 'Median', value: drift.score_p50.toFixed(3) },
+          { label: 'Std Dev', value: drift.score_std.toFixed(3) },
           { label: 'P10', value: drift.score_p10.toFixed(3) },
           { label: 'P25', value: drift.score_p25.toFixed(3) },
           { label: 'P75', value: drift.score_p75.toFixed(3) },

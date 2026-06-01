@@ -33,8 +33,8 @@ function IndicatorCard({ label, indicatorKey, val }: {
   const isAvailable = val !== null && val !== undefined
   const isZeroSuspect = isAvailable && (val as number) === 0 && ZERO_SUSPICIOUS.has(indicatorKey)
   const zeroTip = indicatorKey === 'ieg'
-    ? 'IEG = 0 afeta ~9% dos alunos — pode indicar ausência de avaliação de engajamento. Verifique com o coordenador se houve avaliação no ciclo.'
-    : 'Valor zero pode indicar dado ausente ou erro de registro. Verifique o histórico do aluno antes de tomar decisões baseadas neste indicador.'
+    ? 'IEG = 0 affects ~9% of students — may indicate a missing engagement assessment. Check with the coordinator whether an evaluation took place this cycle.'
+    : 'A zero value may indicate missing data or a registration error. Review the student\'s history before making decisions based on this indicator.'
   return (
     <div style={{
       position: 'relative',
@@ -84,7 +84,7 @@ function IndicatorCard({ label, indicatorKey, val }: {
           width: '220px', boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
           pointerEvents: 'none',
         }}>
-          <span style={{ color: '#fbbf24', fontWeight: 700 }}>⚠️ Dado suspeito</span><br />
+          <span style={{ color: '#fbbf24', fontWeight: 700 }}>⚠️ Suspicious data</span><br />
           {zeroTip}
         </div>
       )}
@@ -196,7 +196,7 @@ export default function StudentProfile() {
                 {student.display_name}
               </h1>
               <p style={{ color: colors.gray500, fontSize: typography.sizes.xs, margin: '0.1rem 0 0' }}>
-                {student.phase}{student.class_group && ` · Turma ${student.class_group}`}{student.fase_num !== null && ` · Fase ${student.fase_num}`}
+                {student.phase}{student.class_group && ` · Class ${student.class_group}`}{student.fase_num !== null && ` · Phase ${student.fase_num}`}
               </p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
@@ -213,9 +213,9 @@ export default function StudentProfile() {
                     padding: '0.25rem 0.75rem',
                     gap: '0.05rem',
                   }}>
-                    <span style={{ fontSize: '0.6rem', fontWeight: 700, color: isLag ? '#92400e' : '#166534', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Defasagem</span>
+                    <span style={{ fontSize: '0.6rem', fontWeight: 700, color: isLag ? '#92400e' : '#166534', textTransform: 'uppercase', letterSpacing: '0.05em' }}>School Lag</span>
                     <span style={{ fontSize: typography.sizes.base, fontWeight: 800, color: isLag ? '#92400e' : '#166534', fontVariantNumeric: 'tabular-nums' }}>
-                      {def > 0 ? '+' : ''}{def} fase{Math.abs(def) !== 1 ? 's' : ''}
+                      {def > 0 ? '+' : ''}{def} phase{Math.abs(def) !== 1 ? 's' : ''}
                     </span>
                   </div>
                 )
@@ -227,7 +227,7 @@ export default function StudentProfile() {
               }}>
                 {student.risk_score != null ? `${(student.risk_score * 100).toFixed(1)}%` : '—'}
               </span>
-              <span style={{ fontSize: typography.sizes.xs, color: colors.gray500 }}>risco</span>
+              <span style={{ fontSize: typography.sizes.xs, color: colors.gray500 }}>risk</span>
               <RiskBadge risk_tier={student.risk_tier} />
             </div>
           </div>

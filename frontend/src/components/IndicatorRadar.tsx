@@ -42,7 +42,7 @@ function formatRawValue(key: string, raw: number | null): string {
   if (raw === null || raw === undefined) return 'N/A'
   if (key === 'defasagem') {
     const v = Math.round(raw)
-    return `${v > 0 ? '+' : ''}${v} ${Math.abs(v) === 1 ? 'fase' : 'fases'}`
+    return `${v > 0 ? '+' : ''}${v} ${Math.abs(v) === 1 ? 'phase' : 'phases'}`
   }
   return raw.toFixed(2)
 }

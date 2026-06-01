@@ -20,9 +20,9 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 FALLBACK_TEXT = (
-    "A sugestão pedagógica não pôde ser gerada no momento. "
-    "Por favor, consulte o histórico de indicadores do estudante e entre em contato "
-    "com o coordenador pedagógico para orientações personalizadas."
+    "The pedagogical suggestion could not be generated at this time. "
+    "Please review the student's indicator history and contact "
+    "the pedagogical coordinator for personalized guidance."
 )
 
 # ── Model config ──────────────────────────────────────────────────────────────
@@ -37,15 +37,15 @@ RETRY_DELAY = 1.0  # seconds between retries
 _CACHE_TTL_SECONDS = 3600  # 1 hour
 
 _INDICATOR_LABELS: dict[str, str] = {
-    "iaa": "Desempenho Acadêmico (IAA)",
-    "ieg": "Engajamento (IEG)",
-    "ips": "Índice Psicossocial (IPS)",
-    "ida": "Aprendizagem (IDA)",
-    "ipv": "Visão de Vida (IPV)",
-    "ipp": "Índice Psicopedagógico (IPP)",
-    "ian": "Adequação ao Nível (IAN)",
-    "inde": "Desenvolvimento Educacional (INDE)",
-    "defasagem": "Defasagem Escolar (anos atrás)",
+    "iaa": "Academic Achievement Index (IAA)",
+    "ieg": "Engagement Index (IEG)",
+    "ips": "Psychosocial Index (IPS)",
+    "ida": "Learning Index (IDA)",
+    "ipv": "Future Vision Index (IPV)",
+    "ipp": "Psychopedagogical Index (IPP)",
+    "ian": "Grade Level Adequacy Index (IAN)",
+    "inde": "Educational Development Index (INDE)",
+    "defasagem": "Educational Lag (years behind)",
 }
 
 # Thresholds considered "low" per indicator (below = weak signal)
@@ -61,18 +61,18 @@ _WEAK_THRESHOLD: dict[str, float] = {
 }
 
 _SYSTEM_PROMPT = """\
-Você é um assistente pedagógico especializado em análise de risco de defasagem escolar, \
-apoiando coordenadores da ONG Passos Mágicos.
+You are a pedagogical assistant specialized in educational lag risk analysis, \
+supporting coordinators at the NGO Passos Mágicos.
 
-Regras obrigatórias:
-1. Nunca mencione nome completo, RA, CPF, turma, endereço ou qualquer dado pessoal identificável.
-2. Responda APENAS em português brasileiro, de forma direta e acionável.
-3. Formate a resposta como uma lista numerada com exatamente 4 sugestões pedagógicas.
-4. Cada sugestão deve ter no máximo 2 frases — objetiva e prática.
-5. Não invente dados que não estejam no contexto fornecido.
-6. Não inclua introdução, conclusão ou saudações — apenas as 4 sugestões.
-7. Indicadores marcados com ⚠️ são dados ausentes ou inválidos — IGNORE-OS completamente. \
-Nunca sugira melhorar registros, corrigir cadastro ou preencher dados. Foque apenas em ações pedagógicas.\
+Mandatory rules:
+1. Never mention full names, student IDs, tax IDs, class groups, addresses, or any personally identifiable data.
+2. Respond ONLY in English, in a direct and actionable manner.
+3. Format the response as a numbered list with exactly 4 pedagogical suggestions.
+4. Each suggestion must be at most 2 sentences — objective and practical.
+5. Do not invent data that is not present in the provided context.
+6. Do not include introductions, conclusions, or greetings — only the 4 suggestions.
+7. Indicators marked with ⚠️ are missing or invalid data — IGNORE THEM completely. \
+Never suggest improving records, fixing registrations, or filling in data. Focus only on pedagogical actions.\
 """
 
 
@@ -160,7 +160,7 @@ class LLMService:
     ) -> str:
         """LGPD-safe prompt with enriched context."""
         risk_pct = f"{risk_score * 100:.1f}%"
-        risk_label = "ALTO" if risk_score >= 0.65 else "MÉDIO" if risk_score >= 0.35 else "BAIXO"
+        risk_label = "HIGH" if risk_score >= 0.65 else "MEDIUM" if risk_score >= 0.35 else "LOW"
 
         # Build indicator lines + identify weakest (sorted worst-first)
         lines: list[str] = []
@@ -168,10 +168,10 @@ class LLMService:
         for key, label in _INDICATOR_LABELS.items():
             val = indicators.get(key)
             if val is None:
-                formatted = "dado não disponível"
+                formatted = "data not available"
             elif key == "defasagem":
                 v = int(val)
-                formatted = f"{v:+d} {'fase' if abs(v) == 1 else 'fases'}"
+                formatted = f"{v:+d} {'phase' if abs(v) == 1 else 'phases'}"
                 if v < 0:
                     weak.append((float(v), label))
             else:
@@ -180,7 +180,7 @@ class LLMService:
                 # Zero in the display data very likely means data-entry error
                 # or student with no evaluation — NOT a genuine score.
                 if key in _WEAK_THRESHOLD and fv == 0.0:
-                    formatted += " ⚠️ (dado ausente — ignorar)"
+                    formatted += " ⚠️ (data missing — ignore)"
                 elif key in _WEAK_THRESHOLD and fv < _WEAK_THRESHOLD[key]:
                     weak.append((fv, label))
             lines.append(f"  • {label}: {formatted}")
@@ -190,7 +190,7 @@ class LLMService:
 
         indicators_block = "\n".join(lines)
         weak_block = (
-            f"\nIndicadores mais preocupantes (priorizar nesta ordem): {', '.join(weak_sorted[:4])}."
+            f"\nMost concerning indicators (prioritize in this order): {', '.join(weak_sorted[:4])}."
             if weak_sorted
             else ""
         )
@@ -199,23 +199,23 @@ class LLMService:
         defasagem_val = indicators.get("defasagem")
         if defasagem_val is not None and int(defasagem_val) < 0:
             fases = abs(int(defasagem_val))
-            fase_word = "fase" if fases == 1 else "fases"
+            phase_word = "phase" if fases == 1 else "phases"
             urgency_block = (
-                f"\n⚠️ ATENÇÃO: Este aluno já está {fases} {fase_word} abaixo do esperado para sua idade. "
-                f"Priorize intervenções de recuperação imediata e acompanhamento próximo. "
-                f"Ao menos uma sugestão deve abordar diretamente a redução da defasagem escolar acumulada."
+                f"\n⚠️ WARNING: This student is already {fases} {phase_word} below the expected level for their age. "
+                f"Prioritize immediate recovery interventions and close monitoring. "
+                f"At least one suggestion must directly address reducing the accumulated educational lag."
             )
         else:
             urgency_block = ""
 
         return (
-            f"Aluno(a): {display_name}\n"
-            f"Risco de defasagem no próximo ciclo: {risk_pct} (nível {risk_label})"
+            f"Student: {display_name}\n"
+            f"Educational lag risk in the next cycle: {risk_pct} (level {risk_label})"
             f"{urgency_block}\n\n"
-            f"Indicadores atuais:\n{indicators_block}\n"
+            f"Current indicators:\n{indicators_block}\n"
             f"{weak_block}\n\n"
-            f"Forneça 4 sugestões pedagógicas numeradas, objetivas e práticas, "
-            f"que o coordenador pode adotar imediatamente para apoiar este aluno."
+            f"Provide 4 numbered, objective, and practical pedagogical suggestions "
+            f"that the coordinator can adopt immediately to support this student."
         )
 
     # ── Private — validation ──────────────────────────────────────────────────

@@ -116,7 +116,7 @@ export default function SearchBar({ onSearch, classGroups }: SearchBarProps) {
           <option value="">All classes</option>
           {classGroups.map((g) => (
             <option key={g} value={g}>
-              Turma {g}
+              Class {g}
             </option>
           ))}
         </select>

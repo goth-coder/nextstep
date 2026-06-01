@@ -72,6 +72,25 @@ logging.basicConfig(
 )
 log = logging.getLogger("data_loader")
 
+
+def _fallback_name(seed: int) -> str:
+    """Generate a deterministic English display name from a numeric seed."""
+    import hashlib
+
+    _FIRST = [
+        "Alex", "Jordan", "Morgan", "Taylor", "Casey", "Riley", "Avery", "Quinn", "Cameron", "Hayden",
+        "Skylar", "Peyton", "Reese", "Dakota", "Finley", "Parker", "Drew", "Blake", "Sage", "River",
+        "Elliot", "Spencer", "Rowan", "Logan", "Emerson", "Kendall", "Harley", "Jamie", "Jesse", "Corey",
+    ]
+    _LAST = [
+        "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Wilson", "Moore",
+        "Taylor", "Anderson", "Thomas", "Jackson", "White", "Harris", "Martin", "Thompson", "Young", "Lewis",
+        "Walker", "Hall", "Allen", "King", "Scott", "Green", "Baker", "Adams", "Nelson", "Carter",
+    ]
+    h = int(hashlib.md5(str(seed).encode()).hexdigest(), 16)
+    return f"{_FIRST[h % len(_FIRST)]} {_LAST[(h >> 8) % len(_LAST)]}"
+
+
 # ── Paths ──────────────────────────────────────────────────────────────────────
 _SRC_DIR = Path(__file__).parent
 _BACKEND_DIR = _SRC_DIR.parent
@@ -434,7 +453,7 @@ def run_etl() -> None:
     students_meta = []
     for i, row in d24_clean.iterrows():
         nome = str(row.get("Nome", "")) or ""
-        display_name = nome.split()[0] if nome.strip() and nome != "nan" else f"Aluno-{i}"
+        display_name = nome.split()[0] if nome.strip() and nome != "nan" else _fallback_name(i)
         fase_raw = row.get("Fase", "")
         fase_num = int(row.get("fase_num", 0))
         phase_label = str(fase_raw) if str(fase_raw) not in ("nan", "") else f"Fase {fase_num}"
