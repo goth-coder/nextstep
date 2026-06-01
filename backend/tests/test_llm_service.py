@@ -85,7 +85,7 @@ def test_prompt_does_not_contain_class_group():
 
 
 def test_prompt_has_no_none_literal():
-    """None indicator values must appear as 'dado nao disponivel', not the Python literal None."""
+    """None indicator values must appear as 'data not available', not the Python literal None."""
     captured: list[str] = []
 
     fake_mod = _fake_groq_module("Advice")
@@ -106,8 +106,8 @@ def test_prompt_has_no_none_literal():
     )
     full = " ".join(captured)
     assert "None" not in full, "Python None must not appear in Groq prompt"
-    # The prompt uses "dado não disponível" — check with the actual accented form
-    assert "dispon" in full.lower(), "Prompt must contain a 'not available' marker for None indicators"
+    # The prompt uses "data not available" for None indicators
+    assert "not available" in full.lower(), "Prompt must contain a 'not available' marker for None indicators"
 
 
 # -- Successful response ------------------------------------------------------
