@@ -23,7 +23,8 @@ export async function getStudents(): Promise<{ students: StudentSummary[]; total
 // ── Student detail ────────────────────────────────────────────────────────────
 
 export async function getStudent(id: number): Promise<StudentDetail> {
-  const response = await api.get<StudentDetail>(`/api/students/${id}`)
+  // Longer timeout: cold start can take 60-90s (same as the list endpoint)
+  const response = await api.get<StudentDetail>(`/api/students/${id}`, { timeout: 30_000 })
   return response.data
 }
 
