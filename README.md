@@ -1,75 +1,75 @@
 # NextStep — Student Risk Advisor
 
-> Plataforma de inteligência preditiva para coordenadores pedagógicos identificarem e apoiarem estudantes em risco de defasagem acadêmica.
+> Predictive intelligence platform for academic coordinators to identify and support students at risk of academic lag.
 
 **Stack**: LSTM (PyTorch) · LightGBM · Flask 3 · React 18 · MLflow 2 · Groq LLM · Docker · Kubernetes (GKE)
-**Dataset**: PEDE 2022-2024 (FIAP Datathon) · 1 156 alunos ativos · previsão para ciclo 2024
-**Último modelo**: v261 @prod · AUC=0.832 · F1=0.589 · threshold=0.19 (PR curve) · Optuna HPO
+**Dataset**: PEDE 2022-2024 (FIAP Datathon) · 1,156 active students · forecast for the 2024 cycle
+**Latest model**: v261 @prod · AUC=0.832 · F1=0.589 · threshold=0.19 (PR curve) · Optuna HPO
 
-![Perfil de aluno com score de risco, indicadores PEDE e recomendação pedagógica gerada por IA](docs/ss.png)
+![Student profile with risk score, PEDE indicators, and AI-generated pedagogical recommendation](docs/ss.png)
 
 ---
 
-## Sobre a Associação Passos Mágicos
+## About Associação Passos Mágicos
 
-> *"Mudando a vida de crianças e jovens por meio da educação."*
+> *"Changing the lives of children and youth through education."*
 
-A **Associação Passos Mágicos** tem uma trajetória de 32 anos de atuação e trabalha na transformação da vida de crianças e jovens de baixa renda, levando-os a melhores oportunidades de vida. A associação busca instrumentalizar a educação como ferramenta para a mudança das condições de vida de crianças e jovens em vulnerabilidade social.
+The **Associação Passos Mágicos** has a 32-year history and works to transform the lives of low-income children and youth, giving them access to better life opportunities. The association uses education as a tool to change the living conditions of socially vulnerable children and youth.
 
-O **NextStep** foi desenvolvido com base no dataset de pesquisa extensiva do desenvolvimento educacional da associação nos anos de 2022, 2023 e 2024 (PEDE), com o objetivo de ajudar coordenadores pedagógicos a identificar precocemente alunos em risco e agir de forma mais eficaz.
+**NextStep** was developed based on the association's extensive educational development research dataset for the years 2022, 2023, and 2024 (PEDE), with the goal of helping academic coordinators identify at-risk students early and act more effectively.
 
-**1. Configurar variáveis de ambiente**
+**1. Configure environment variables**
 
 ```bash
 cp .env.example .env
-# Edite .env e preencha GROQ_API_KEY=gsk_...
+# Edit .env and fill in GROQ_API_KEY=gsk_...
 ```
 
-### 2. Subir o MLflow
+### 2. Start MLflow
 
 ```bash
 docker compose up mlflow -d
-# Aguarde ficar healthy antes de continuar
-docker compose ps mlflow   # Status deve ser "healthy"
+# Wait until healthy before continuing
+docker compose ps mlflow   # Status should be "healthy"
 # MLflow UI: http://localhost:5000
 ```
 
-### 3. Adicionar o dataset
+### 3. Add the dataset
 
-Coloque o arquivo XLSX do PEDE na pasta git-ignorada:
+Place the PEDE XLSX file in the git-ignored folder:
 
 ```bash
 mkdir -p backend/data/raw
-cp /caminho/para/"BASE DE DADOS PEDE 2022-2024 - DATATHON.xlsx" backend/data/raw/
+cp /path/to/"BASE DE DADOS PEDE 2022-2024 - DATATHON.xlsx" backend/data/raw/
 ```
 
-### 4. ETL — processar o dataset
+### 4. ETL — process the dataset
 
 ```bash
 docker compose run --rm --no-deps api python ml/data_loader.py
-# Gera em backend/data/processed/:
+# Generates in backend/data/processed/:
 #   X_train.npy  y_train.npy
 #   X_test.npy   y_test.npy
-#   X_inference.npy (alunos 2024, sem target)
-#   scaler.pkl (RobustScaler fitado no treino)
-#   students_meta.pkl (metadados para a API)
+#   X_inference.npy (2024 students, no target)
+#   scaler.pkl (RobustScaler fitted on training data)
+#   students_meta.pkl (metadata for the API)
 ```
 
-### 5. Treinar o modelo
+### 5. Train the model
 
 ```bash
-# Treino direto (defaults ou --config best_params.json)
+# Direct training (defaults or --config best_params.json)
 docker compose run --rm api python ml/train.py
 
-# HPO com Optuna — N trials, retreina com o melhor automaticamente
+# HPO with Optuna — N trials, retrains with the best automatically
 docker compose run --rm api python ml/tune.py --trials 30
 
-# HPO só busca, sem retreinar
+# HPO search only, without retraining
 docker compose run --rm api python ml/tune.py --trials 30 --no-train
-# O melhor modelo é promovido para @staging e @prod automaticamente
+# The best model is automatically promoted to @staging and @prod
 ```
 
-### 6. Promover o modelo para produção
+### 6. Promote the model to production
 
 ```bash
 docker compose run --rm --no-deps api python -c "
@@ -81,40 +81,40 @@ c = MlflowClient(uri)
 versions = c.search_model_versions(\"name='nextstep-lstm'\")
 latest = max(int(v.version) for v in versions)
 c.set_registered_model_alias('nextstep-lstm', 'prod', str(latest))
-print(f'@prod definido na versao {latest}')
+print(f'@prod set to version {latest}')
 "
 ```
 
-Ou manualmente: http://localhost:5000 → Models → `nextstep-lstm` → versão mais recente → Aliases → `prod`
+Or manually: http://localhost:5000 → Models → `nextstep-lstm` → latest version → Aliases → `prod`
 
-### 7. Subir todos os serviços
+### 7. Start all services
 
 ```bash
 docker compose up --build
 ```
 
-| Serviço         | URL                   |
+| Service          | URL                   |
 | ---------------- | --------------------- |
 | Frontend (React) | http://localhost:3000 |
 | API (Flask)      | http://localhost:8080 |
 | MLflow UI        | http://localhost:5000 |
 
-> **Novo modelo em produção**: após treinar e promover o alias, basta `docker compose restart api`.
+> **New model in production**: after training and promoting the alias, simply run `docker compose restart api`.
 
-> **Dados persistidos**: `backend/data/processed/` e `mlruns/` são bind mounts — `docker compose down` **não** apaga os artefatos.
+> **Persisted data**: `backend/data/processed/` and `mlruns/` are bind mounts — `docker compose down` does **not** delete the artifacts.
 
 ---
 
-## Estrutura do Projeto
+## Project Structure
 
 ```
 nextstep/
 ├── backend/
 │   ├── app/                       # Flask application (SOLID)
-│   │   ├── domain/                # Entidades + ports (interfaces)
+│   │   ├── domain/                # Entities + ports (interfaces)
 │   │   ├── repositories/          # MLflow model + student data
 │   │   ├── services/              # Prediction, cache, LLM
-│   │   ├── routes.py              # Endpoints REST
+│   │   ├── routes.py              # REST Endpoints
 │   │   ├── swagger_config.py      # Flasgger/Swagger setup
 │   │   ├── limiter.py             # Rate limiting (flask-limiter)
 │   │   └── __init__.py        
@@ -122,18 +122,18 @@ nextstep/
 │   │   ├── models/                # LSTMClassifier (PyTorch)
 │   │   ├── training/              # trainer.py, evaluator.py, registry.py, hpo.py
 │   │   ├── data_loader.py         # ETL: PEDE XLSX → .npy + scaler
-│   │   ├── train.py               # Entrypoint LSTM: treino + quality gate + registro
-│   │   ├── train_lgbm.py          # Entrypoint LightGBM: treino + quality gate + registro
+│   │   ├── train.py               # Entrypoint LSTM: training + quality gate + registration
+│   │   ├── train_lgbm.py          # Entrypoint LightGBM: training + quality gate + registration
 │   │   ├── tune.py                # HPO Optuna → LSTM
 │   │   └── tune_lgbm.py           # HPO Optuna → LightGBM
-│   ├── scripts/                   # Exploratório / análises (não produção)
+│   ├── scripts/                   # Exploratory / analyses (not production)
 │   ├── tests/                     # pytest (test_api, test_data_loader, test_lgbm_train, ...)
 │   ├── data/
-│   │   ├── raw/                   # XLSX original (git-ignored)
+│   │   ├── raw/                   # Original XLSX (git-ignored)
 │   │   └── processed/             # .npy, scaler.pkl, students_meta.pkl (git-ignored)
 │   ├── Dockerfile
-│   ├── requirements.txt           # Dev (inclui torch CUDA, pytest, ruff)
-│   ├── requirements-prod.txt      # Runtime only (sem torch CUDA)
+│   ├── requirements.txt           # Dev (includes torch CUDA, pytest, ruff)
+│   ├── requirements-prod.txt      # Runtime only (without torch CUDA)
 │   └── pyproject.toml             # ruff + pytest config
 ├── frontend/
 │   ├── src/
@@ -145,8 +145,8 @@ nextstep/
 │   │   └── main.tsx
 │   ├── Dockerfile
 │   └── package.json
-├── mlflow/                        # Dockerfile do MLflow server customizado
-├── k8s/                           # Manifests Kubernetes (GKE)
+├── mlflow/                        # Custom MLflow server Dockerfile
+├── k8s/                           # Kubernetes Manifests (GKE)
 │   ├── backend-deployment.yaml
 │   ├── frontend-deployment.yaml
 │   ├── mlflow-deployment.yaml
@@ -155,13 +155,13 @@ nextstep/
 │   └── ...
 ├── .github/
 │   └── workflows/
-│       ├── ci.yaml                # lint + testes (backend + frontend)
-│       ├── deploy.yaml            # build Docker + deploy GKE (pós CI)
-│       └── train.yaml             # treino em cluster GKE efêmero
+│       ├── ci.yaml                # lint + tests (backend + frontend)
+│       ├── deploy.yaml            # Docker build + GKE deploy (post CI)
+│       └── train.yaml             # training on ephemeral GKE cluster
 ├── docs/        
 ├── docker-compose.yml             # Dev (hot-reload via volume mounts)
-├── docker-compose-prod.yml        # Prod (código baked na imagem)
-├── app.py                         # Runner unificado docker compose
+├── docker-compose-prod.yml        # Prod (code baked into the image)
+├── app.py                         # Unified Docker Compose runner
 └── .env.example
 ```
 
@@ -177,7 +177,7 @@ nextstep/
 
 ### `GET /api/students`
 
-Lista estudantes ordenados por risco (desc).
+Lists students sorted by risk (desc).
 
 ```json
 {
@@ -191,7 +191,7 @@ Lista estudantes ordenados por risco (desc).
 
 ### `GET /api/students/:id`
 
-Perfil completo com indicadores. IPP é exibido mas **não** entra no modelo.
+Full profile with indicators. IPP is displayed but does **not** enter the model.
 
 ```json
 {
@@ -205,7 +205,7 @@ Perfil completo com indicadores. IPP é exibido mas **não** entra no modelo.
 
 ### `GET /api/students/:id/advice`
 
-Sugestão pedagógica gerada pelo Groq (sempre HTTP 200).
+Pedagogical suggestion generated by Groq (always HTTP 200).
 
 ```json
 {
@@ -216,8 +216,8 @@ Sugestão pedagógica gerada pelo Groq (sempre HTTP 200).
 
 ### `POST /api/predict`
 
-Predição on-demand para valores brutos de indicadores (não precisa ser um aluno do dataset).
-Útil para simulações e testes de what-if. Todos os campos são opcionais (padrão: 0).
+On-demand prediction for raw indicator values (does not need to be a student in the dataset).
+Useful for simulations and what-if tests. All fields are optional (default: 0).
 
 ```json
 // Request body
@@ -231,75 +231,75 @@ Predição on-demand para valores brutos de indicadores (não precisa ser um alu
 { "risk_score": 0.3124, "risk_tier": "medium", "input": { ... } }
 ```
 
-Limitado a 60 requisições/hora por IP. IPP não entra no modelo (display-only).
+Limited to 60 requests/hour per IP. IPP does not enter the model (display-only).
 
 ---
 
-## Runner unificado (docker)
+## Unified Runner (docker)
 
-O projeto inclui um runner Docker-only na raiz:
+The project includes a Docker-only runner at the root:
 
 ```bash
-# sobe stack com compose
+# starts stack with compose
 python app.py
 
-# modo docker com build limpo (sem cache)
+# docker mode with clean build (no cache)
 python app.py --no-cache
 ```
 
-Flags úteis:
+Useful flags:
 
-- `--dry-run`: imprime os comandos sem executar
-- `--detach`: usa `docker compose up -d --build`
+- `--dry-run`: prints commands without executing
+- `--detach`: uses `docker compose up -d --build`
 
 ---
 
-## Pipeline de ML
+## ML Pipeline
 
-| Etapa                           | Detalhe                                                                                                                                                                                              |
+| Stage                           | Detail                                                                                                                                                                                              |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Features**              | IAA, IEG, IPS, IDA, IPV, IAN, INDE, defasagem, fase\_num, gender, age, tenure, n\_av, mat, por, missing\_grades (INPUT\_SIZE=16)                                                                     |
-| **IPP**                   | Display-only — ausente em 2022, imputado para exibição, não entra no modelo                                                                                                                      |
-| **mat / por**             | Notas de matemática e português; flag `missing_grades` + imputação por mediana de fase fitada no treino (sem leakage)                                                                          |
-| **Split**                 | Temporal: 2022→2023 treino / 2023→2024 teste / 2024 inferência                                                                                                                                    |
-| **Missing (treino)**      | DROP — linhas com null em qualquer feature são descartadas                                                                                                                                         |
-| **Missing (inferência)** | IMPUTE com medianas do treino — NaN e IEG/IDA=0 são tratados como ausentes (≈9% dos alunos 2024)                                                                                                  |
-| **Zeros IEG/IDA**         | IEG=0 (9,4 %) e IDA=0 (1,4 %) são prováveis erros de registro — imputados pela mediana da fase no treino para o modelo; valor original 0 é preservado para exibição no frontend com aviso ⚠️ |
-| **Scaler**                | `RobustScaler` (mediana+IQR, clip±5) — robusto a outliers                                                                                                                                        |
-| **Threshold**             | Otimizado via curva PR no validation set (20% do treino) — nunca no test                                                                                                                            |
-| **Modelo**                | LSTM 1 camada hidden\_size=128, BCEWithLogitsLoss com pos\_weight · ou LightGBM com scale\_pos\_weight dinâmico · ambos otimizados via Optuna                                                     |
-| **Tracking**              | MLflow: params, métricas, scaler como artefato, alias @staging/@prod                                                                                                                                |
-| **HPO**                   | Optuna: N trials por experimento, cada trial = child MLflow run, melhor retrained e promovido                                                                                                        |
+| **IPP**                   | Display-only — absent in 2022, imputed for display, does not enter the model                                                                                                                      |
+| **mat / por**             | Math and Portuguese grades; `missing_grades` flag + imputation by phase median fitted on training (no leakage)                                                                          |
+| **Split**                 | Temporal: 2022→2023 train / 2023→2024 test / 2024 inference                                                                                                                                    |
+| **Missing (training)**      | DROP — rows with null in any feature are discarded                                                                                                                                         |
+| **Missing (inference)** | IMPUTE with training medians — NaN and IEG/IDA=0 are treated as missing (≈9% of 2024 students)                                                                                                  |
+| **Zeros IEG/IDA**         | IEG=0 (9.4%) and IDA=0 (1.4%) are likely recording errors — imputed by phase median in training for the model; original value 0 is preserved for frontend display with a ⚠️ warning |
+| **Scaler**                | `RobustScaler` (median+IQR, clip±5) — robust to outliers                                                                                                                                        |
+| **Threshold**             | Optimized via PR curve on validation set (20% of training) — never on test                                                                                                                            |
+| **Model**                | LSTM 1 layer hidden\_size=128, BCEWithLogitsLoss with pos\_weight · or LightGBM with dynamic scale\_pos\_weight · both optimized via Optuna                                                     |
+| **Tracking**              | MLflow: params, metrics, scaler as artifact, alias @staging/@prod                                                                                                                                |
+| **HPO**                   | Optuna: N trials per experiment, each trial = child MLflow run, best retrained and promoted                                                                                                        |
 
-### Fluxo de dados
+### Data Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │  OFFLINE  —  data_loader.py                                         │
 │                                                                     │
-│  PEDE .xlsx  →  ETL / limpeza  →  feature eng  →  RobustScaler     │
-│             →  salva como .npy  (formato portátil, sem framework)   │
+│  PEDE .xlsx  →  ETL / cleaning  →  feature eng  →  RobustScaler    │
+│             →  saves as .npy  (portable format, framework-free)     │
 │                                                                     │
 │  data/processed/                                                    │
 │    X_train.npy   (n_samples, n_features)                            │
 │    y_train.npy   (n_samples,)                                       │
 │    X_test.npy                                                       │
 │    y_test.npy                                                       │
-│    X_inference.npy   ← alunos 2024, sem target                      │
+│    X_inference.npy   ← 2024 students, no target                     │
 │    scaler.pkl                                                       │
 └──────────────────────────┬──────────────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  TRAINING TIME  —  ml/train.py  (ou  ml/tune.py  para HPO)        │
+│  TRAINING TIME  —  ml/train.py  (or  ml/tune.py  for HPO)         │
 │                                                                     │
-│  1. np.load("X_train.npy")          # ndarray, sem dependência ML   │
-│  2. temporal val split (20%)        # mantém ordem cronológica      │
-│  3. torch.from_numpy(arr)           # converte para tensor PyTorch  │
+│  1. np.load("X_train.npy")          # ndarray, no ML dependency    │
+│  2. temporal val split (20%)        # maintains chronological order │
+│  3. torch.from_numpy(arr)           # converts to PyTorch tensor    │
 │     .unsqueeze(1)                   # → (N, seq_len=1, n_features)  │
 │  4. TrainingLoop  →  LSTM + Adam + BCEWithLogitsLoss(pos_weight)    │
-│  5. Evaluator.find_threshold()      # curva PR no val set           │
-│  6. Evaluator.evaluate()            # AUC + F1 no test set          │
+│  5. Evaluator.find_threshold()      # PR curve on val set           │
+│  6. Evaluator.evaluate()            # AUC + F1 on test set          │
 │  7. quality gate  →  MLflowRegistry.log_run() + promote @prod       │
 └──────────────────────────┬──────────────────────────────────────────┘
                            │
@@ -311,19 +311,19 @@ Flags úteis:
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Comandos de treino
+### Training Commands
 
 ```bash
-# ETL — gera os .npy (necessário uma vez)
+# ETL — generates the .npy files (required once)
 docker compose run --rm api python ml/data_loader.py
 
-# Treino direto com defaults (ou --config best_params.json)
+# Direct training with defaults (or --config best_params.json)
 docker compose run --rm api python ml/train.py
 
-# HPO — N trials Optuna, salva best_params.json e retreina
+# HPO — N Optuna trials, saves best_params.json and retrains
 docker compose run --rm api python ml/tune.py --trials 30
 
-# HPO só busca, sem retreinar
+# HPO search only, without retraining
 docker compose run --rm api python ml/tune.py --trials 30 --no-train
 ```
 
@@ -332,17 +332,17 @@ docker compose run --rm api python ml/tune.py --trials 30 --no-train
 ## CI/CD
 
 ```
-Push → branch main
+Push → main branch
   │
   ▼
 [ CI ] GitHub Actions
   ├── backend-ci:  ruff lint + pytest
   └── frontend-ci: eslint + vitest
   │
-  ▼  (somente se CI passou)
+  ▼  (only if CI passed)
 [ Deploy ] GitHub Actions
   ├── build-mlflow  ┐
-  ├── build-backend ├── docker build + push → Artifact Registry  (paralelo)
+  ├── build-backend ├── docker build + push → Artifact Registry  (parallel)
   └── build-frontend┘
   │
   └── deploy:
@@ -351,13 +351,13 @@ Push → branch main
         kubectl set image nextstep-web
 
 [ Train ] workflow_dispatch (manual)
-  ├── Cria cluster GKE efêmero (e2-standard-2)
-  ├── Kubernetes Job: HPO (Optuna) + treino + registro MLflow
-  ├── Destroi cluster
-  └── (opcional) promove @staging → @prod
+  ├── Creates ephemeral GKE cluster (e2-standard-2)
+  ├── Kubernetes Job: HPO (Optuna) + training + MLflow registration
+  ├── Destroys cluster
+  └── (optional) promotes @staging → @prod
 ```
 
-## Testes
+## Tests
 
 ```bash
 # Backend
@@ -373,7 +373,7 @@ npm test -- --run
 
 ---
 
-## Qualidade de Código
+## Code Quality
 
 ```bash
 # Python (Ruff, line-length=120)
@@ -385,19 +385,19 @@ cd frontend && npm run lint
 
 ---
 
-## Variáveis de Ambiente
+## Environment Variables
 
-| Variável               | Descrição                | Obrigatório      |
+| Variable               | Description                | Required      |
 | ----------------------- | -------------------------- | ----------------- |
-| `GROQ_API_KEY`        | Chave da API Groq          | Sim (para advice) |
-| `MLFLOW_TRACKING_URI` | URL do servidor MLflow     | Sim               |
-| `VITE_API_BASE_URL`   | URL base da API (frontend) | Sim               |
+| `GROQ_API_KEY`        | Groq API key               | Yes (for advice) |
+| `MLFLOW_TRACKING_URI` | MLflow server URL          | Yes               |
+| `VITE_API_BASE_URL`   | Base API URL (frontend)    | Yes               |
 
 ---
 
-## Thresholds de Risco
+## Risk Thresholds
 
-| Tier       | Faixa              | Badge     |
+| Tier       | Range              | Badge     |
 | ---------- | ------------------ | --------- |
 | `high`   | score ≥ 0.7       | 🔴 Red    |
 | `medium` | 0.3 ≤ score < 0.7 | 🟡 Yellow |
@@ -405,6 +405,6 @@ cd frontend && npm run lint
 
 ---
 
-## Licença
+## License
 
-Projeto acadêmico — FIAP Datathon 2026.
+Academic project — FIAP Datathon 2026.
