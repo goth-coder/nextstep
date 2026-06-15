@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { useIsMobile } from '../hooks/useMediaQuery'
 import { colors, shadows, typography } from '../styles/theme'
 
 const SIDEBAR_W = 200
@@ -10,6 +11,77 @@ interface AppShellProps {
 
 export default function AppShell({ children }: AppShellProps) {
   const location = useLocation()
+  const isMobile = useIsMobile()
+
+  if (isMobile) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          background: colors.surface,
+          fontFamily: typography.fontFamily,
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        {/* ── Top bar ── */}
+        <header
+          style={{
+            background: colors.brandPrimary,
+            boxShadow: shadows.md,
+            position: 'sticky',
+            top: 0,
+            zIndex: 100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0.625rem 1rem',
+          }}
+        >
+          <Link
+            to="/"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', textDecoration: 'none' }}
+          >
+            <div
+              aria-hidden
+              style={{
+                width: '28px',
+                height: '28px',
+                flexShrink: 0,
+                background: colors.brandAccent,
+                borderRadius: '7px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '0.9rem',
+                fontWeight: 800,
+                color: colors.white,
+              }}
+            >
+              N
+            </div>
+            <span style={{ color: colors.white, fontWeight: 700, fontSize: typography.sizes.base }}>
+              NextStep
+            </span>
+          </Link>
+
+          <nav style={{ display: 'flex', gap: '0.25rem' }}>
+            <NavLink to="/" active={location.pathname === '/'} icon="⊞">
+              Dashboard
+            </NavLink>
+            <NavLink to="/model" active={location.pathname === '/model'} icon="◈">
+              Model
+            </NavLink>
+          </nav>
+        </header>
+
+        {/* ── Page content ── */}
+        <main style={{ flex: 1, minWidth: 0, padding: '1rem', boxSizing: 'border-box', overflowX: 'hidden' }}>
+          {children}
+        </main>
+      </div>
+    )
+  }
 
   return (
     <div

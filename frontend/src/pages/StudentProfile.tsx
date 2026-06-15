@@ -5,6 +5,7 @@ import AppShell from '../components/AppShell'
 import ErrorState from '../components/ErrorState'
 import IndicatorRadar from '../components/IndicatorRadar'
 import RiskBadge from '../components/RiskBadge'
+import { useIsMobile } from '../hooks/useMediaQuery'
 import { getStudent } from '../services/api'
 import { colors, radius, shadows, typography } from '../styles/theme'
 import type { StudentDetail } from '../types/student'
@@ -95,6 +96,7 @@ function IndicatorCard({ label, indicatorKey, val }: {
 export default function StudentProfile() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const [status, setStatus] = useState<Status>('loading')
   const [student, setStudent] = useState<StudentDetail | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
@@ -162,7 +164,9 @@ export default function StudentProfile() {
             display: 'flex',
             flexDirection: 'column',
             gap: '0.75rem',
-            height: 'calc(100vh - 6rem)',
+            // Desktop: lock to viewport so columns fill the screen.
+            // Mobile: let the page grow and scroll naturally.
+            height: isMobile ? 'auto' : 'calc(100vh - 6rem)',
             minHeight: 0,
           }}
         >
@@ -236,15 +240,18 @@ export default function StudentProfile() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: '1fr 320px',
+              gridTemplateColumns: isMobile ? '1fr' : '1fr 320px',
               gap: '0.75rem',
               flex: 1,
               minHeight: 0,
-              overflow: 'hidden',
+              overflow: isMobile ? 'visible' : 'hidden',
             }}
           >
-            {/* Left: indicators + advice stacked */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', minHeight: 0, overflow: 'hidden' }}>
+            {/* Left: indicators + advice stacked (radar follows below on mobile) */}
+            <div style={{
+              display: 'flex', flexDirection: 'column', gap: '0.75rem',
+              minHeight: 0, overflow: isMobile ? 'visible' : 'hidden',
+            }}>
               <section
                 aria-label="Student indicators"
                 style={{
@@ -284,12 +291,12 @@ export default function StudentProfile() {
               </section>
 
               {/* AI Advice below indicators */}
-              <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+              <div style={{ flex: 1, minHeight: 0, overflow: isMobile ? 'visible' : 'auto' }}>
                 <AdvicePanel studentId={student.student_id} riskTier={student.risk_tier} />
               </div>
             </div>
 
-            {/* Right: radar only */}
+            {/* Right: radar only (full-width below on mobile, capped so it stays readable) */}
             <aside
               style={{
                 background: colors.white,
@@ -302,6 +309,10 @@ export default function StudentProfile() {
                 alignItems: 'center',
                 gap: '0.5rem',
                 overflow: 'hidden',
+                width: '100%',
+                maxWidth: isMobile ? '360px' : undefined,
+                margin: isMobile ? '0 auto' : undefined,
+                boxSizing: 'border-box',
               }}
             >
               <h2 style={{

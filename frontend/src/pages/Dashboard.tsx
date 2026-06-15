@@ -4,6 +4,7 @@ import AppShell from '../components/AppShell'
 import ErrorState from '../components/ErrorState'
 import RiskBadge from '../components/RiskBadge'
 import StatCards from '../components/StatCards'
+import { useIsMobile } from '../hooks/useMediaQuery'
 import { getOrFetchStudents, invalidateStudentCache } from '../services/studentCache'
 import { colors, radius, shadows, typography } from '../styles/theme'
 import type { RiskTier, StudentSummary } from '../types/student'
@@ -21,6 +22,7 @@ const RISK_TIERS: { value: RiskTier | 'all'; label: string; color: string; bg: s
 
 export default function Dashboard() {
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const [status, setStatus] = useState<Status>('loading')
   const [students, setStudents] = useState<StudentSummary[]>([])
   const [errorMsg, setErrorMsg] = useState('')
@@ -233,26 +235,29 @@ export default function Dashboard() {
               background: colors.white, border: `1px solid ${colors.gray200}`,
               borderRadius: radius.lg, overflow: 'hidden', boxShadow: shadows.sm,
             }}>
-              {/* Header */}
-              <div aria-hidden style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 110px 130px 80px',
-                gap: '1rem', padding: '0.625rem 1.25rem',
-                background: colors.gray50, borderBottom: `1px solid ${colors.gray200}`,
-                fontSize: typography.sizes.xs, fontWeight: 700,
-                color: colors.gray500, textTransform: 'uppercase', letterSpacing: '0.06em',
-              }}>
-                <span>Name</span>
-                <span>Class</span>
-                <span>Risk Level</span>
-                <span style={{ textAlign: 'right' }}>Score</span>
-              </div>
+              {/* Header (desktop only — rows are self-describing on mobile) */}
+              {!isMobile && (
+                <div aria-hidden style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 110px 130px 80px',
+                  gap: '1rem', padding: '0.625rem 1.25rem',
+                  background: colors.gray50, borderBottom: `1px solid ${colors.gray200}`,
+                  fontSize: typography.sizes.xs, fontWeight: 700,
+                  color: colors.gray500, textTransform: 'uppercase', letterSpacing: '0.06em',
+                }}>
+                  <span>Name</span>
+                  <span>Class</span>
+                  <span>Risk Level</span>
+                  <span style={{ textAlign: 'right' }}>Score</span>
+                </div>
+              )}
 
               {paginated.map((student, idx) => (
                 <StudentRow
                   key={student.student_id}
                   student={student}
                   isLast={idx === paginated.length - 1}
+                  isMobile={isMobile}
                   onClick={() => navigate(`/students/${student.student_id}`)}
                 />
               ))}
@@ -284,10 +289,49 @@ export default function Dashboard() {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function StudentRow({ student, isLast, onClick }: {
-  student: StudentSummary; isLast: boolean; onClick: () => void
+function StudentRow({ student, isLast, isMobile, onClick }: {
+  student: StudentSummary; isLast: boolean; isMobile: boolean; onClick: () => void
 }) {
   const [hovered, setHovered] = useState(false)
+  const scoreText = student.risk_score != null ? `${(student.risk_score * 100).toFixed(1)}%` : '—'
+
+  if (isMobile) {
+    return (
+      <div
+        role="button" tabIndex={0} onClick={onClick}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
+        aria-label={`View profile for ${student.display_name}`}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: '0.75rem', padding: '0.875rem 1rem', cursor: 'pointer',
+          borderBottom: isLast ? 'none' : `1px solid ${colors.gray100}`,
+          background: colors.white,
+        }}
+      >
+        <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+          <span style={{
+            fontWeight: 600, color: colors.gray900, fontSize: typography.sizes.sm,
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            {student.display_name}
+          </span>
+          <span style={{ color: colors.gray500, fontSize: typography.sizes.xs }}>
+            Class {student.class_group || '—'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flexShrink: 0 }}>
+          <span style={{
+            fontVariantNumeric: 'tabular-nums', fontWeight: 700,
+            color: colors.gray700, fontSize: typography.sizes.sm,
+          }}>
+            {scoreText}
+          </span>
+          <RiskBadge risk_tier={student.risk_tier} />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
       role="button" tabIndex={0} onClick={onClick}
@@ -320,7 +364,7 @@ function StudentRow({ student, isLast, onClick }: {
         color: colors.gray700, fontSize: typography.sizes.sm,
         textAlign: 'right',
       }}>
-        {student.risk_score != null ? `${(student.risk_score * 100).toFixed(1)}%` : '—'}
+        {scoreText}
       </span>
     </div>
   )
