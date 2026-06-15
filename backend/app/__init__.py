@@ -61,26 +61,36 @@ def create_app() -> Flask:
     app.extensions["llm"] = llm_svc
 
     with app.app_context():
-        # Phase 1: load students from GCS.
-        # If processed files are missing, run ETL from raw GCS data first.
-        try:
-            cache_svc.load_students()
-        except Exception as exc:  # noqa: BLE001
-            log.warning("GCS processed files not found (%s) — running ETL from gs://%s/raw/...",
-                        exc, os.getenv("GCS_BUCKET", "?"))
-            try:
-                from ml.data_loader import run_etl  # noqa: PLC0415
-                run_etl()
-                log.info("ETL complete — retrying student load from GCS...")
-                cache_svc.load_students()
-            except Exception as etl_exc:  # noqa: BLE001
-                log.error("ETL + student load failed: %s", etl_exc, exc_info=True)
+        # Fast path: load the precomputed scores artifact from GCS. No model
+        # load, no inference — the dominant cold-start cost when min-instances=0.
+        # The model lazy-loads later only if /predict is called.
+        if cache_svc.load_from_artifact():
+            log.info("Startup served from precomputed scores artifact ✓ (model lazy-loads on /predict)")
+        else:
+            # Slow path (artifact missing/stale): load data, run inference once,
+            # then persist the artifact so the NEXT cold start takes the fast path.
 
-        # Phase 2: load model scores (non-fatal — requires trained model in MLflow)
-        try:
-            cache_svc.load_model_scores()
-        except Exception as exc:  # noqa: BLE001
-            log.warning("Model not loaded (run Train workflow to enable risk scores): %s", exc)
+            # Phase 1: load students from GCS.
+            # If processed files are missing, run ETL from raw GCS data first.
+            try:
+                cache_svc.load_students()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("GCS processed files not found (%s) — running ETL from gs://%s/raw/...",
+                            exc, os.getenv("GCS_BUCKET", "?"))
+                try:
+                    from ml.data_loader import run_etl  # noqa: PLC0415
+                    run_etl()
+                    log.info("ETL complete — retrying student load from GCS...")
+                    cache_svc.load_students()
+                except Exception as etl_exc:  # noqa: BLE001
+                    log.error("ETL + student load failed: %s", etl_exc, exc_info=True)
+
+            # Phase 2: load model scores (non-fatal — requires trained model in MLflow)
+            try:
+                cache_svc.load_model_scores()
+                cache_svc.persist_artifact()  # self-heal: speed up future cold starts
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Model not loaded (run Train workflow to enable risk scores): %s", exc)
 
     from app.routes import routes_bp
 

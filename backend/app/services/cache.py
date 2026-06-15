@@ -13,9 +13,18 @@ import time
 from datetime import datetime, timezone
 
 from app.domain.student import StudentRecord
+from app.services import scored_artifact
 from app.services.prediction import PredictionService
 
 log = logging.getLogger(__name__)
+
+
+def _by_risk_desc(records: list[StudentRecord]) -> list[StudentRecord]:
+    """Sort by risk score descending; unscored last, ties broken by name."""
+    return sorted(
+        records,
+        key=lambda r: (-(r.risk_score or 0.0) if r.risk_score is not None else float("-inf"), r.display_name),
+    )
 
 
 class StudentCacheService:
@@ -54,12 +63,34 @@ class StudentCacheService:
         self._last_attempt_at = datetime.now(timezone.utc).isoformat()
         records = self._prediction_service.run_batch_inference()
         self._cache = {r.student_id: r for r in records}
-        self._sorted = sorted(
-            records,
-            key=lambda r: (-(r.risk_score or 0.0) if r.risk_score is not None else float("-inf"), r.display_name),
-        )
+        self._sorted = _by_risk_desc(records)
         self._ready = True
         log.info("Phase-2 cache ready ✓  %d students (with scores)", len(self._cache))
+
+    def load_from_artifact(self) -> bool:
+        """
+        Fast path: populate the cache from the precomputed GCS scores artifact.
+
+        Returns True if the artifact was found and loaded — in which case the
+        model is NOT loaded (it lazy-loads on the first /predict call). Returns
+        False if no usable artifact exists, so the caller falls back to inference.
+        """
+        self._attempt_count += 1
+        self._last_attempt_at = datetime.now(timezone.utc).isoformat()
+        records = scored_artifact.load()
+        if not records:
+            return False
+        self._cache = {r.student_id: r for r in records}
+        self._sorted = _by_risk_desc(records)
+        self._students_ready = True
+        self._ready = True
+        self._last_error = None
+        log.info("Cache ready ✓ from precomputed artifact  %d students (model not loaded)", len(self._cache))
+        return True
+
+    def persist_artifact(self) -> bool:
+        """Write the current scored records to GCS so future cold starts skip inference."""
+        return scored_artifact.save(self._sorted, model_name=os.getenv("MLFLOW_MODEL_NAME"))
 
     def load(self) -> None:
         """Legacy: run full batch inference (called during retry loop)."""

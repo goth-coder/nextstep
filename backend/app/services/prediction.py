@@ -134,8 +134,11 @@ class PredictionService:
         -------
         float — risk score in [0, 1].
         """
+        # Lazy-load: the dashboard is served from precomputed scores, so the
+        # model is only loaded here, on the first on-demand prediction.
         if not self._model_repo.is_loaded:
-            raise RuntimeError("Model not loaded. Call load() first.")
+            log.info("Lazy-loading model for on-demand prediction…")
+            self._model_repo.load()
 
         scaler = self._data_repo.load_scaler()
 

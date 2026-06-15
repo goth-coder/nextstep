@@ -65,6 +65,25 @@ class Indicators:
             "n_av": self.n_av,
         }
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "Indicators":
+        return cls(
+            iaa=d.get("iaa"),
+            ieg=d.get("ieg"),
+            ips=d.get("ips"),
+            ida=d.get("ida"),
+            ipv=d.get("ipv"),
+            ipp=d.get("ipp"),
+            ian=d.get("ian"),
+            inde=d.get("inde"),
+            defasagem=d.get("defasagem"),
+            fase_num=d.get("fase_num"),
+            mat=d.get("mat"),
+            por=d.get("por"),
+            tenure=d.get("tenure"),
+            n_av=d.get("n_av"),
+        )
+
 
 @dataclass(frozen=True)
 class StudentRecord:
@@ -115,4 +134,40 @@ class StudentRecord:
             risk_score=round(risk_score, 4) if risk_score is not None else None,
             risk_tier=RiskTier.from_score(risk_score) if risk_score is not None else None,
             indicators=indicators,
+        )
+
+    def to_dict(self) -> dict:
+        """Serialize for the precomputed scores artifact (round-trips via from_dict)."""
+        return {
+            "student_id": self.student_id,
+            "ra": self.ra,
+            "display_name": self.display_name,
+            "phase": self.phase,
+            "phase_num": self.phase_num,
+            "class_group": self.class_group,
+            "gender": self.gender,
+            "age": self.age,
+            "year": self.year,
+            "risk_score": self.risk_score,
+            "risk_tier": self.risk_tier.value if self.risk_tier is not None else None,
+            "indicators": self.indicators.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "StudentRecord":
+        """Rebuild from an artifact dict — preserves stored score/tier verbatim."""
+        tier = d.get("risk_tier")
+        return cls(
+            student_id=int(d["student_id"]),
+            ra=d.get("ra", f"RA-{d['student_id']}"),
+            display_name=d["display_name"],
+            phase=d.get("phase", "N/A"),
+            phase_num=d.get("phase_num", 0),
+            class_group=d.get("class_group", "N/A"),
+            gender=int(d.get("gender", 0)),
+            age=d.get("age"),
+            year=d.get("year", 2024),
+            risk_score=d.get("risk_score"),
+            risk_tier=RiskTier(tier) if tier is not None else None,
+            indicators=Indicators.from_dict(d.get("indicators", {})),
         )

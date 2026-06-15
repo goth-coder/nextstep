@@ -268,6 +268,12 @@ jobs:
         if: inputs.promote_to_prod == 'true'
         run: |
           MODEL_NAME="${{ needs.train.outputs.model_name }}"
+          # Invalidate the precomputed scores artifact so the API re-scores with
+          # the newly promoted model on its next cold start (then re-persists it).
+          gcloud storage rm "gs://${{ secrets.GCS_BUCKET }}/processed/scored_students.json" \
+            --quiet 2>/dev/null \
+            && echo "🗑️ Stale scores artifact deleted — will regenerate from ${MODEL_NAME}@prod" \
+            || echo "ℹ️ No scores artifact to delete (will be generated on first cold start)"
           gcloud run services update nextstep-api \
             --region "$REGION" \
             --project "$PROJECT_ID" \
